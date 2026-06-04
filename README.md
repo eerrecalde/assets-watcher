@@ -40,6 +40,15 @@ Run a type check:
 npm run typecheck
 ```
 
+Start the local Supabase stack and apply migrations:
+
+```bash
+npx supabase start
+npx supabase db reset --local --no-seed
+```
+
+Docker Desktop or another Docker-compatible runtime must be running for local Supabase commands.
+
 Run the development server:
 
 ```bash
@@ -81,4 +90,10 @@ Supabase client helpers live in `src/lib/supabase`:
 - `server.ts` creates a cookie-aware server client for Server Components, Server Actions, and Route Handlers.
 - `admin.ts` creates a server-only client using `SUPABASE_SECRET_KEY` for trusted jobs or admin workflows.
 
-Database types are currently a placeholder in `src/types/supabase.ts` and should be replaced with generated Supabase types once the schema baseline exists.
+Database migrations live in `supabase/migrations`. The initial schema baseline creates the core portfolio, holdings, watchlist, market-data cache, scoring snapshot, user-rule, and AI-take tables.
+
+After applying migrations locally, regenerate database types with:
+
+```bash
+npx supabase gen types typescript --local > src/types/supabase.ts
+```
