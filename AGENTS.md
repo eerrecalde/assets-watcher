@@ -6,6 +6,11 @@ Before making product or implementation changes, read:
 
 Work issue-by-issue. Use GitHub issues as the unit of work.
 
+Before starting any issue work:
+- Fetch `origin main`.
+- Ensure the working branch is based on the latest `origin/main`.
+- If it is not, update or rebase before making changes.
+
 For every issue:
 - Follow the product plan unless the issue explicitly says otherwise.
 - Keep changes scoped to the issue.
