@@ -29,6 +29,20 @@ export default function Home() {
             exposure, and explaining rule-based valuation checks in cautious,
             educational language.
           </p>
+          <div className="mt-8 flex flex-wrap gap-3">
+            <a
+              className="rounded-md bg-emerald-400 px-4 py-2 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300"
+              href="/signup"
+            >
+              Create account
+            </a>
+            <a
+              className="rounded-md border border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:text-white"
+              href="/login"
+            >
+              Log in
+            </a>
+          </div>
         </div>
 
         <div className="mt-12 grid gap-4 md:grid-cols-3">

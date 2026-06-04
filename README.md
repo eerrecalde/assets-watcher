@@ -48,6 +48,22 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000) to view the app.
 
+## Authentication
+
+The initial authentication flow uses Supabase email/password auth:
+
+- `/signup` creates a user account.
+- `/login` signs an existing user in.
+- `/dashboard` is protected and redirects anonymous users to `/login`.
+- The dashboard logout action signs the current user out and returns them to `/login`.
+- `/auth/callback` exchanges Supabase email-confirmation codes for a session.
+
+In the Supabase dashboard, add the local callback URL to the allowed redirect URLs when testing sign up locally:
+
+```txt
+http://localhost:3000/auth/callback
+```
+
 ## Useful Scripts
 
 ```bash
