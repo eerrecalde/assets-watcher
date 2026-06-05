@@ -6,6 +6,7 @@ import {
   deleteHoldingAction,
   updateHoldingAction,
 } from "@/lib/holdings/actions";
+import { updateCashBalanceAction } from "@/lib/portfolios/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/supabase";
@@ -13,6 +14,7 @@ import type { Database } from "@/types/supabase";
 export const dynamic = "force-dynamic";
 
 type HoldingRow = Database["public"]["Tables"]["holdings"]["Row"];
+type PortfolioCashRow = Database["public"]["Tables"]["portfolio_cash"]["Row"];
 type StockRow = Database["public"]["Tables"]["stocks"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 
@@ -102,7 +104,22 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
   );
   const portfolio = defaultPortfolioResult.portfolio;
   const portfolioError = defaultPortfolioResult.error;
+  const displayCurrency = portfolio?.base_currency ?? "USD";
 
+  const cashResult = portfolio
+    ? await supabase
+        .from("portfolio_cash")
+        .select("amount,currency,updated_at")
+        .eq("portfolio_id", portfolio.id)
+        .eq("currency", displayCurrency)
+        .maybeSingle()
+    : {
+        data: null as Pick<
+          PortfolioCashRow,
+          "amount" | "currency" | "updated_at"
+        > | null,
+        error: null,
+      };
   const holdingsResult = portfolio
     ? await supabase
         .from("holdings")
@@ -167,7 +184,8 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
     (total, holding) => total + (holding.unrealizedGain ?? 0),
     0,
   );
-  const displayCurrency = portfolio?.base_currency ?? "USD";
+  const cashAmountValue = cashResult.data?.amount ?? "0";
+  const cashAmount = toNumber(cashAmountValue) ?? 0;
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -219,7 +237,7 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
           </p>
         ) : null}
 
-        <div className="grid gap-4 py-8 md:grid-cols-4">
+        <div className="grid gap-4 py-8 md:grid-cols-5">
           <div className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
             <p className="text-sm text-neutral-400">Portfolio</p>
             <p className="mt-2 text-lg font-semibold text-white">
@@ -230,6 +248,12 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
             <p className="text-sm text-neutral-400">Holdings</p>
             <p className="mt-2 text-lg font-semibold text-white">
               {holdings.length}
+            </p>
+          </div>
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+            <p className="text-sm text-neutral-400">Cash balance</p>
+            <p className="mt-2 text-lg font-semibold text-white">
+              {formatCurrency(cashAmount, displayCurrency)}
             </p>
           </div>
           <div className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
@@ -259,6 +283,64 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
             </p>
           </div>
         </div>
+
+        <section className="border-t border-neutral-800 py-8">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Cash balance
+              </h2>
+              <p className="mt-2 max-w-xl text-sm leading-6 text-neutral-400">
+                Track uninvested cash manually in the portfolio base currency.
+              </p>
+            </div>
+            {cashResult.data?.updated_at ? (
+              <p className="text-sm text-neutral-500">
+                Updated{" "}
+                {new Date(cashResult.data.updated_at).toLocaleDateString(
+                  "en-US",
+                )}
+              </p>
+            ) : null}
+          </div>
+
+          {cashResult.error ? (
+            <p className="mt-5 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+              Cash balance could not be loaded.
+            </p>
+          ) : null}
+
+          <form
+            action={updateCashBalanceAction}
+            className="mt-5 grid gap-4 sm:grid-cols-[minmax(12rem,18rem)_6rem_auto]"
+          >
+            <label className="grid gap-2 text-sm font-medium text-neutral-200">
+              Amount
+              <input
+                className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white outline-none transition focus:border-emerald-400"
+                defaultValue={cashAmountValue}
+                min="0"
+                name="cash_amount"
+                required
+                step="0.0001"
+                type="number"
+              />
+            </label>
+            <div className="grid gap-2 text-sm font-medium text-neutral-200">
+              Currency
+              <div className="flex h-11 items-center rounded-md border border-neutral-800 bg-neutral-900 px-3 text-base text-neutral-300">
+                {displayCurrency}
+              </div>
+            </div>
+            <button
+              className="h-11 self-end rounded-md bg-emerald-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+              disabled={!portfolio}
+              type="submit"
+            >
+              Save cash
+            </button>
+          </form>
+        </section>
 
         <section className="border-y border-neutral-800 py-8">
           <h2 className="text-lg font-semibold text-white">Add holding</h2>
