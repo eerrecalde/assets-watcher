@@ -100,6 +100,7 @@ http://localhost:3000/auth/callback
 
 - `npm run dev` starts the Next.js development server.
 - `npm run lint` runs ESLint across the project.
+- `npm run test` runs unit tests.
 - `npm run typecheck` runs TypeScript without emitting build output.
 - `npm run build` creates a production Next.js build.
 - `npm run start` starts the production server after `npm run build`.
