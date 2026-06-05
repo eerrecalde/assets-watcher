@@ -3,6 +3,10 @@ import Link from "next/link";
 
 import { signOutAction } from "@/lib/auth/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
+import {
+  calculateHoldingValue,
+  calculatePortfolioTotals,
+} from "@/lib/portfolios/totals";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/supabase";
 
@@ -17,16 +21,6 @@ type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
 
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
-
-function toNumber(value: string | number | null) {
-  if (value === null) {
-    return null;
-  }
-
-  const numericValue = Number(value);
-
-  return Number.isFinite(numericValue) ? numericValue : null;
-}
 
 function formatNumber(value: number, maximumFractionDigits = 6) {
   return new Intl.NumberFormat("en-US", {
@@ -177,51 +171,30 @@ export default async function DashboardPage() {
     >[],
   );
   const enrichedHoldings = holdings.map((holding) => {
-    const quantity = toNumber(holding.quantity) ?? 0;
-    const averageCost = toNumber(holding.average_cost) ?? 0;
     const latestPrice = latestPricesBySymbol.get(holding.symbol);
-    const latestClose = latestPrice ? toNumber(latestPrice.close) : null;
-    const marketValue = latestClose === null ? null : quantity * latestClose;
-    const costBasis = quantity * averageCost;
-    const unrealizedGain =
-      marketValue === null ? null : marketValue - costBasis;
+    const calculatedValue = calculateHoldingValue({
+      averageCost: holding.average_cost,
+      latestClose: latestPrice?.close,
+      quantity: holding.quantity,
+    });
 
     return {
-      averageCost,
+      ...calculatedValue,
       holding,
-      latestClose,
       latestPriceDate: latestPrice?.price_date,
-      marketValue,
       portfolioFitLabel:
         latestPortfolioScoresBySymbol.get(holding.symbol)
           ?.portfolio_fit_label ?? "Review Position",
-      quantity,
       stockLabel:
         latestStockScoresBySymbol.get(holding.symbol)?.overall_label ??
         "Insufficient Data",
       stockName: stocksBySymbol.get(holding.symbol)?.name ?? holding.symbol,
-      unrealizedGain,
     };
   });
-  const hasCachedMarketValues = enrichedHoldings.some(
-    (holding) => holding.marketValue !== null,
+  const portfolioTotals = calculatePortfolioTotals(
+    enrichedHoldings,
+    cashResult.data?.amount,
   );
-  const cachedMarketTotal = enrichedHoldings.reduce(
-    (total, holding) => total + (holding.marketValue ?? 0),
-    0,
-  );
-  const costBasisTotal = enrichedHoldings.reduce(
-    (total, holding) => total + holding.quantity * holding.averageCost,
-    0,
-  );
-  const unrealizedTotal = enrichedHoldings.reduce(
-    (total, holding) => total + (holding.unrealizedGain ?? 0),
-    0,
-  );
-  const cashAmount = toNumber(cashResult.data?.amount ?? "0") ?? 0;
-  const totalPortfolioValue = hasCachedMarketValues
-    ? cachedMarketTotal + cashAmount
-    : null;
   const hasLoadError =
     Boolean(holdingsResult.error) ||
     Boolean(stocksResult.error) ||
@@ -279,7 +252,7 @@ export default async function DashboardPage() {
             </p>
           ) : null}
 
-          <div className="grid gap-4 md:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-3 xl:grid-cols-6">
             <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
               <p className="text-sm text-neutral-400">Portfolio</p>
               <p className="mt-2 text-lg font-semibold text-white">
@@ -295,28 +268,42 @@ export default async function DashboardPage() {
             <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
               <p className="text-sm text-neutral-400">Cash balance</p>
               <p className="mt-2 text-lg font-semibold text-white">
-                {formatCurrency(cashAmount, displayCurrency)}
+                {formatCurrency(portfolioTotals.cashAmount, displayCurrency)}
               </p>
             </article>
             <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
-              <p className="text-sm text-neutral-400">Total value</p>
+              <p className="text-sm text-neutral-400">Holdings value</p>
               <p className="mt-2 text-lg font-semibold text-white">
-                {formatCurrency(totalPortfolioValue, displayCurrency)}
+                {formatCurrency(
+                  portfolioTotals.holdingsValueTotal,
+                  displayCurrency,
+                )}
+              </p>
+            </article>
+            <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+              <p className="text-sm text-neutral-400">Overall value</p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {formatCurrency(
+                  portfolioTotals.totalPortfolioValue,
+                  displayCurrency,
+                )}
               </p>
             </article>
             <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
               <p className="text-sm text-neutral-400">Unrealised gain/loss</p>
               <p
                 className={`mt-2 text-lg font-semibold ${
-                  !hasCachedMarketValues
+                  !portfolioTotals.hasCachedMarketValues
                     ? "text-neutral-300"
-                    : unrealizedTotal >= 0
+                    : portfolioTotals.unrealizedTotal >= 0
                       ? "text-emerald-200"
                       : "text-red-200"
                 }`}
               >
                 {formatCurrency(
-                  hasCachedMarketValues ? unrealizedTotal : null,
+                  portfolioTotals.hasCachedMarketValues
+                    ? portfolioTotals.unrealizedTotal
+                    : null,
                   displayCurrency,
                 )}
               </p>
@@ -335,7 +322,11 @@ export default async function DashboardPage() {
                 </p>
               </div>
               <p className="text-sm text-neutral-400">
-                Cost basis: {formatCurrency(costBasisTotal, displayCurrency)}
+                Cost basis:{" "}
+                {formatCurrency(
+                  portfolioTotals.costBasisTotal,
+                  displayCurrency,
+                )}
               </p>
             </div>
 
@@ -365,8 +356,10 @@ export default async function DashboardPage() {
                   <tbody className="divide-y divide-neutral-800">
                     {enrichedHoldings.map((row) => {
                       const allocation =
-                        row.marketValue !== null && totalPortfolioValue
-                          ? (row.marketValue / totalPortfolioValue) * 100
+                        portfolioTotals.totalPortfolioValue > 0
+                          ? (row.portfolioValue /
+                              portfolioTotals.totalPortfolioValue) *
+                            100
                           : null;
 
                       return (
