@@ -275,6 +275,101 @@ export type Database = {
           },
         ];
       };
+      stock_scores: {
+        Row: {
+          id: string;
+          symbol: string;
+          scored_at: string;
+          valuation_score: number | null;
+          quality_score: number | null;
+          safety_score: number | null;
+          market_context_score: number | null;
+          overall_label: Database["public"]["Enums"]["stock_label"];
+          explanation_json: Json;
+        };
+        Insert: {
+          id?: string;
+          symbol: string;
+          scored_at?: string;
+          valuation_score?: number | null;
+          quality_score?: number | null;
+          safety_score?: number | null;
+          market_context_score?: number | null;
+          overall_label?: Database["public"]["Enums"]["stock_label"];
+          explanation_json?: Json;
+        };
+        Update: {
+          id?: string;
+          symbol?: string;
+          scored_at?: string;
+          valuation_score?: number | null;
+          quality_score?: number | null;
+          safety_score?: number | null;
+          market_context_score?: number | null;
+          overall_label?: Database["public"]["Enums"]["stock_label"];
+          explanation_json?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "stock_scores_symbol_fkey";
+            columns: ["symbol"];
+            isOneToOne: false;
+            referencedRelation: "stocks";
+            referencedColumns: ["symbol"];
+          },
+        ];
+      };
+      portfolio_stock_scores: {
+        Row: {
+          id: string;
+          portfolio_id: string;
+          symbol: string;
+          scored_at: string;
+          portfolio_fit_label: Database["public"]["Enums"]["portfolio_fit_label"];
+          allocation_warning: string | null;
+          sector_warning: string | null;
+          cash_warning: string | null;
+          explanation_json: Json;
+        };
+        Insert: {
+          id?: string;
+          portfolio_id: string;
+          symbol: string;
+          scored_at?: string;
+          portfolio_fit_label?: Database["public"]["Enums"]["portfolio_fit_label"];
+          allocation_warning?: string | null;
+          sector_warning?: string | null;
+          cash_warning?: string | null;
+          explanation_json?: Json;
+        };
+        Update: {
+          id?: string;
+          portfolio_id?: string;
+          symbol?: string;
+          scored_at?: string;
+          portfolio_fit_label?: Database["public"]["Enums"]["portfolio_fit_label"];
+          allocation_warning?: string | null;
+          sector_warning?: string | null;
+          cash_warning?: string | null;
+          explanation_json?: Json;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "portfolio_stock_scores_portfolio_id_fkey";
+            columns: ["portfolio_id"];
+            isOneToOne: false;
+            referencedRelation: "portfolios";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "portfolio_stock_scores_symbol_fkey";
+            columns: ["symbol"];
+            isOneToOne: false;
+            referencedRelation: "stocks";
+            referencedColumns: ["symbol"];
+          },
+        ];
+      };
     };
     Views: Record<string, never>;
     Functions: Record<string, never>;
