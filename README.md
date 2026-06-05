@@ -85,7 +85,7 @@ The initial authentication flow uses Supabase email/password auth:
 
 - `/signup` creates a user account.
 - `/login` signs an existing user in.
-- `/dashboard` is protected and redirects anonymous users to `/login`.
+- `/dashboard` is protected, redirects anonymous users to `/login`, and shows a read-only holdings table for the user's default portfolio.
 - `/holdings` is protected and lets signed-in users edit their default portfolio cash balance and create, read, update, and delete holdings.
 - The dashboard logout action signs the current user out and returns them to `/login`.
 - `/auth/callback` exchanges Supabase email-confirmation codes for a session.
@@ -121,7 +121,7 @@ Supabase client helpers live in `src/lib/supabase`:
 
 Database migrations live in `supabase/migrations`. The schema baseline creates the core portfolio, holdings, watchlist, market-data cache, scoring snapshot, user-rule, and AI-take tables. Follow-up migrations enable row-level access policies so authenticated users can only access their own application data while shared market-data cache tables remain read-only. New auth users are also onboarded with an app user row, a default USD portfolio, a zero USD cash row, and default rule settings.
 
-The holdings page uses the authenticated Supabase server client for portfolio cash and holdings reads/writes, so RLS remains the ownership boundary. Cash balance edits are stored against the user's default portfolio in its base currency. When a user adds or edits a holding for a symbol that is not yet in `stocks`, a server action uses the server-only Supabase secret key to create a minimal US stock placeholder for that symbol. Cached market prices are displayed when present; otherwise the page still shows manual quantity and average cost data.
+The dashboard and holdings page use the authenticated Supabase server client for portfolio cash and holdings reads, so RLS remains the ownership boundary. The dashboard displays a read-only holdings table with company names, manual quantity and cost basis, latest cached close prices, market values, unrealised gain/loss, allocation, and cached deterministic labels when available. Cash balance edits are stored against the user's default portfolio in its base currency. When a user adds or edits a holding for a symbol that is not yet in `stocks`, a server action uses the server-only Supabase secret key to create a minimal US stock placeholder for that symbol. Cached market prices are displayed when present; otherwise the page still shows manual quantity and average cost data.
 
 After applying migrations locally, regenerate database types with:
 
