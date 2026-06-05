@@ -86,6 +86,7 @@ The initial authentication flow uses Supabase email/password auth:
 - `/signup` creates a user account.
 - `/login` signs an existing user in.
 - `/dashboard` is protected and redirects anonymous users to `/login`.
+- `/holdings` is protected and lets signed-in users create, read, update, and delete holdings in their default portfolio.
 - The dashboard logout action signs the current user out and returns them to `/login`.
 - `/auth/callback` exchanges Supabase email-confirmation codes for a session.
 
@@ -119,6 +120,8 @@ Supabase client helpers live in `src/lib/supabase`:
 - `admin.ts` creates a server-only client using `SUPABASE_SECRET_KEY` for trusted jobs or admin workflows.
 
 Database migrations live in `supabase/migrations`. The schema baseline creates the core portfolio, holdings, watchlist, market-data cache, scoring snapshot, user-rule, and AI-take tables. Follow-up migrations enable row-level access policies so authenticated users can only access their own application data while shared market-data cache tables remain read-only. New auth users are also onboarded with an app user row, a default USD portfolio, a zero USD cash row, and default rule settings.
+
+The holdings page uses the authenticated Supabase server client for portfolio and holdings reads/writes, so RLS remains the ownership boundary. When a user adds or edits a holding for a symbol that is not yet in `stocks`, a server action uses the server-only Supabase secret key to create a minimal US stock placeholder for that symbol. Cached market prices are displayed when present; otherwise the page still shows manual quantity and average cost data.
 
 After applying migrations locally, regenerate database types with:
 

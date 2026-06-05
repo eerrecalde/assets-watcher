@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 import { signOutAction } from "@/lib/auth/actions";
 import { createClient } from "@/lib/supabase/server";
@@ -45,22 +46,39 @@ export default async function DashboardPage() {
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
-            {[
-              "Portfolio setup",
-              "Holdings tracking",
-              "Watchlist tracking",
-            ].map((label) => (
-              <article
-                className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5"
-                key={label}
+            <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+              <h2 className="text-base font-semibold text-white">
+                Portfolio setup
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-neutral-400">
+                New users receive a default portfolio, cash row, and default
+                rule settings.
+              </p>
+            </article>
+
+            <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+              <h2 className="text-base font-semibold text-white">
+                Holdings tracking
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-neutral-400">
+                Create, review, update, and delete owned stock positions.
+              </p>
+              <Link
+                className="mt-5 inline-flex h-10 items-center rounded-md bg-emerald-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300"
+                href="/holdings"
               >
-                <h2 className="text-base font-semibold text-white">{label}</h2>
-                <p className="mt-3 text-sm leading-6 text-neutral-400">
-                  This protected area is ready for the upcoming portfolio
-                  milestones.
-                </p>
-              </article>
-            ))}
+                Open holdings
+              </Link>
+            </article>
+
+            <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+              <h2 className="text-base font-semibold text-white">
+                Watchlist tracking
+              </h2>
+              <p className="mt-3 text-sm leading-6 text-neutral-400">
+                Watchlist setup is reserved for the next scoped milestone.
+              </p>
+            </article>
           </div>
         </div>
       </section>

@@ -8,10 +8,301 @@ export type Json =
 
 export type Database = {
   public: {
-    Tables: Record<string, never>;
+    Tables: {
+      holdings: {
+        Row: {
+          id: string;
+          portfolio_id: string;
+          symbol: string;
+          quantity: string;
+          average_cost: string;
+          currency: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          portfolio_id: string;
+          symbol: string;
+          quantity: string;
+          average_cost: string;
+          currency?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          portfolio_id?: string;
+          symbol?: string;
+          quantity?: string;
+          average_cost?: string;
+          currency?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "holdings_portfolio_id_fkey";
+            columns: ["portfolio_id"];
+            isOneToOne: false;
+            referencedRelation: "portfolios";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "holdings_symbol_fkey";
+            columns: ["symbol"];
+            isOneToOne: false;
+            referencedRelation: "stocks";
+            referencedColumns: ["symbol"];
+          },
+        ];
+      };
+      portfolio_cash: {
+        Row: {
+          amount: string;
+          currency: string;
+          id: string;
+          portfolio_id: string;
+          updated_at: string;
+        };
+        Insert: {
+          amount?: string;
+          currency?: string;
+          id?: string;
+          portfolio_id: string;
+          updated_at?: string;
+        };
+        Update: {
+          amount?: string;
+          currency?: string;
+          id?: string;
+          portfolio_id?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "portfolio_cash_portfolio_id_fkey";
+            columns: ["portfolio_id"];
+            isOneToOne: false;
+            referencedRelation: "portfolios";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      portfolios: {
+        Row: {
+          id: string;
+          user_id: string;
+          name: string;
+          base_currency: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          name: string;
+          base_currency?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          name?: string;
+          base_currency?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "portfolios_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      stocks: {
+        Row: {
+          symbol: string;
+          name: string;
+          exchange: string | null;
+          sector: string | null;
+          industry: string | null;
+          country: string;
+          currency: string;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          symbol: string;
+          name: string;
+          exchange?: string | null;
+          sector?: string | null;
+          industry?: string | null;
+          country?: string;
+          currency?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          symbol?: string;
+          name?: string;
+          exchange?: string | null;
+          sector?: string | null;
+          industry?: string | null;
+          country?: string;
+          currency?: string;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      user_rules: {
+        Row: {
+          created_at: string;
+          id: string;
+          max_debt_to_equity: string;
+          max_pb: string;
+          max_pe: string;
+          max_sector_allocation: string;
+          max_single_stock_allocation: string;
+          min_current_ratio: string;
+          min_margin_of_safety: string;
+          updated_at: string;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          id?: string;
+          max_debt_to_equity?: string;
+          max_pb?: string;
+          max_pe?: string;
+          max_sector_allocation?: string;
+          max_single_stock_allocation?: string;
+          min_current_ratio?: string;
+          min_margin_of_safety?: string;
+          updated_at?: string;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          id?: string;
+          max_debt_to_equity?: string;
+          max_pb?: string;
+          max_pe?: string;
+          max_sector_allocation?: string;
+          max_single_stock_allocation?: string;
+          min_current_ratio?: string;
+          min_margin_of_safety?: string;
+          updated_at?: string;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_rules_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
+      users: {
+        Row: {
+          created_at: string;
+          email: string;
+          id: string;
+          updated_at: string;
+        };
+        Insert: {
+          created_at?: string;
+          email: string;
+          id: string;
+          updated_at?: string;
+        };
+        Update: {
+          created_at?: string;
+          email?: string;
+          id?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      stock_prices: {
+        Row: {
+          id: string;
+          symbol: string;
+          price_date: string;
+          open: string | null;
+          high: string | null;
+          low: string | null;
+          close: string;
+          volume: number | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          symbol: string;
+          price_date: string;
+          open?: string | null;
+          high?: string | null;
+          low?: string | null;
+          close: string;
+          volume?: number | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          symbol?: string;
+          price_date?: string;
+          open?: string | null;
+          high?: string | null;
+          low?: string | null;
+          close?: string;
+          volume?: number | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "stock_prices_symbol_fkey";
+            columns: ["symbol"];
+            isOneToOne: false;
+            referencedRelation: "stocks";
+            referencedColumns: ["symbol"];
+          },
+        ];
+      };
+    };
     Views: Record<string, never>;
     Functions: Record<string, never>;
-    Enums: Record<string, never>;
+    Enums: {
+      fundamental_period_type: "annual" | "quarterly" | "ttm";
+      portfolio_fit_label:
+        | "Underweight"
+        | "Balanced"
+        | "Overweight"
+        | "Concentration Risk"
+        | "Cash Constrained"
+        | "Do Not Add"
+        | "Review Position";
+      stock_label:
+        | "Attractive"
+        | "Reasonable"
+        | "Watch"
+        | "Expensive"
+        | "Avoid / Review"
+        | "Insufficient Data";
+      transaction_type:
+        | "buy"
+        | "sell"
+        | "deposit"
+        | "withdrawal"
+        | "dividend"
+        | "fee";
+    };
     CompositeTypes: Record<string, never>;
   };
 };
