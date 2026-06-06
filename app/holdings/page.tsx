@@ -2,6 +2,10 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
+  FeedbackSnackbars,
+  type FeedbackSnackbarMessage,
+} from "@/components/feedback-snackbars";
+import {
   addHoldingAction,
   deleteHoldingAction,
   refreshHoldingMarketDataAction,
@@ -36,6 +40,42 @@ function getMessageValue(
   const value = params[key];
 
   return typeof value === "string" ? value : undefined;
+}
+
+function buildFeedbackMessages(
+  params: Record<string, string | string[] | undefined>,
+) {
+  const messages: FeedbackSnackbarMessage[] = [];
+  const noticeId = getMessageValue(params, "notice") ?? "notice";
+  const successMessage = getMessageValue(params, "success");
+  const warningMessage = getMessageValue(params, "warning");
+  const errorMessage = getMessageValue(params, "error");
+
+  if (successMessage) {
+    messages.push({
+      id: `${noticeId}:success`,
+      message: successMessage,
+      tone: "success",
+    });
+  }
+
+  if (warningMessage) {
+    messages.push({
+      id: `${noticeId}:warning`,
+      message: warningMessage,
+      tone: "warning",
+    });
+  }
+
+  if (errorMessage) {
+    messages.push({
+      id: `${noticeId}:error`,
+      message: errorMessage,
+      tone: "error",
+    });
+  }
+
+  return messages;
 }
 
 function formatNumber(value: number, maximumFractionDigits = 6) {
@@ -82,8 +122,7 @@ function buildLatestPriceMap(prices: StockPriceRow[]) {
 
 export default async function HoldingsPage({ searchParams }: PageProps) {
   const params = searchParams ? await searchParams : {};
-  const successMessage = getMessageValue(params, "success");
-  const errorMessage = getMessageValue(params, "error");
+  const feedbackMessages = buildFeedbackMessages(params);
   const supabase = await createClient();
   const {
     data: { user },
@@ -189,23 +228,7 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
           </Link>
         </header>
 
-        {successMessage ? (
-          <p
-            aria-live="polite"
-            className="mt-6 rounded-md border border-emerald-900 bg-emerald-950/50 px-4 py-3 text-sm text-emerald-200"
-          >
-            {successMessage}
-          </p>
-        ) : null}
-
-        {errorMessage ? (
-          <p
-            aria-live="polite"
-            className="mt-6 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200"
-          >
-            {errorMessage}
-          </p>
-        ) : null}
+        <FeedbackSnackbars messages={feedbackMessages} />
 
         {portfolioError ? (
           <p className="mt-6 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
