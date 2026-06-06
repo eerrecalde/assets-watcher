@@ -7,6 +7,7 @@ import {
   createFinancialModelingPrepProvider,
   fetchAndCacheCompanyProfile,
   fetchAndCacheLatestPrice,
+  type CompanyProfileCacheResult,
   type LatestPriceCacheResult,
 } from "@/lib/market-data";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -32,19 +33,48 @@ function normalizeCurrency(formData: FormData) {
 }
 
 function redirectWithError(message: string): never {
-  const params = new URLSearchParams({ error: message });
-
-  redirect(`/holdings?${params.toString()}`);
+  redirectWithFeedback({ error: message });
 }
 
 function redirectWithSuccess(message: string): never {
-  const params = new URLSearchParams({ success: message });
+  redirectWithFeedback({ success: message });
+}
+
+function redirectWithFeedback({
+  error,
+  success,
+  warning,
+}: {
+  error?: string;
+  success?: string;
+  warning?: string;
+}): never {
+  const params = new URLSearchParams();
+
+  if (success) {
+    params.set("success", success);
+  }
+
+  if (warning) {
+    params.set("warning", warning);
+  }
+
+  if (error) {
+    params.set("error", error);
+  }
+
+  if (params.size > 0) {
+    params.set("notice", Date.now().toString());
+  }
 
   redirect(`/holdings?${params.toString()}`);
 }
 
 function getMarketDataFailureMessage(
-  result: Exclude<LatestPriceCacheResult, { ok: true }>,
+  result: Exclude<
+    CompanyProfileCacheResult | LatestPriceCacheResult,
+    { ok: true }
+  >,
 ) {
   switch (result.error.code) {
     case "invalid_symbol":
@@ -55,6 +85,8 @@ function getMarketDataFailureMessage(
       return "Market data provider rate limit reached. Try again later.";
     case "provider_unavailable":
       return "Market data provider is unavailable. Try again later.";
+    case "invalid_response":
+      return "Market data provider returned incomplete data for this symbol.";
     case "cache_write_failed":
       return "Market data was fetched but could not be saved.";
     default:
@@ -108,43 +140,73 @@ async function getAuthenticatedSupabase() {
   return { supabase, user };
 }
 
-async function ensureStockExists(symbol: string, currency: string) {
-  const admin = createAdminClient();
+function createMarketDataAdminClient(action: "lookup" | "refresh") {
+  try {
+    return createAdminClient();
+  } catch (error) {
+    console.error(error);
+    redirectWithError(`Market data ${action} is not configured correctly.`);
+  }
+}
+
+async function ensureStockReference(symbol: string) {
+  const admin = createMarketDataAdminClient("lookup");
+  let provider: ReturnType<typeof createFinancialModelingPrepProvider>;
 
   try {
-    const provider = createFinancialModelingPrepProvider();
-    const profileResult = await fetchAndCacheCompanyProfile({
-      provider,
-      supabase: admin,
-      symbol,
-    });
-
-    if (!profileResult.ok) {
-      await ensureFallbackStockReference(admin, symbol, currency);
+    provider = createFinancialModelingPrepProvider();
+  } catch (error) {
+    if (isMissingFmpApiKeyError(error)) {
+      redirectWithError(
+        "Market data lookup is not configured. Add FMP_API_KEY on the server.",
+      );
     }
 
-    const priceResult = await fetchAndCacheLatestPrice({
-      provider,
-      supabase: admin,
-      symbol,
-    });
+    console.error(error);
+    redirectWithError("Could not start market data lookup.");
+  }
 
-    if (!priceResult.ok && priceResult.error.code === "cache_write_failed") {
+  const profileResult = await fetchAndCacheCompanyProfile({
+    provider,
+    supabase: admin,
+    symbol,
+  });
+
+  if (!profileResult.ok) {
+    if (profileResult.error.code === "cache_write_failed") {
+      console.error(profileResult.error.message);
+    }
+
+    redirectWithError(
+      `Stock reference could not be verified: ${getMarketDataFailureMessage(
+        profileResult,
+      )}`,
+    );
+  }
+
+  const priceResult = await fetchAndCacheLatestPrice({
+    provider,
+    supabase: admin,
+    symbol,
+  });
+
+  if (!priceResult.ok) {
+    if (priceResult.error.code === "cache_write_failed") {
       console.error(priceResult.error.message);
     }
 
-    return;
-  } catch (error) {
-    if (!isMissingFmpApiKeyError(error)) {
-      console.error(error);
-    }
+    return {
+      warning: `Latest price could not be refreshed: ${getMarketDataFailureMessage(
+        priceResult,
+      )}`,
+    };
   }
 
-  await ensureFallbackStockReference(admin, symbol, currency);
+  return {};
 }
 
 async function refreshMarketDataForSymbol(symbol: string) {
-  const admin = createAdminClient();
+  const admin = createMarketDataAdminClient("refresh");
   let provider: ReturnType<typeof createFinancialModelingPrepProvider>;
 
   try {
@@ -165,6 +227,11 @@ async function refreshMarketDataForSymbol(symbol: string) {
     supabase: admin,
     symbol,
   });
+  const profileWarning = !profileResult.ok
+    ? `Company profile could not be refreshed: ${getMarketDataFailureMessage(
+        profileResult,
+      )}`
+    : undefined;
 
   if (!profileResult.ok && profileResult.error.code === "cache_write_failed") {
     console.error(profileResult.error.message);
@@ -184,30 +251,7 @@ async function refreshMarketDataForSymbol(symbol: string) {
     redirectWithError(getMarketDataFailureMessage(priceResult));
   }
 
-  return priceResult.data;
-}
-
-async function ensureFallbackStockReference(
-  admin: ReturnType<typeof createAdminClient>,
-  symbol: string,
-  currency: string,
-) {
-  const { error } = await admin.from("stocks").upsert(
-    {
-      symbol,
-      name: symbol,
-      country: "US",
-      currency,
-    },
-    {
-      ignoreDuplicates: true,
-      onConflict: "symbol",
-    },
-  );
-
-  if (error) {
-    redirectWithError("Could not create the stock reference for this symbol.");
-  }
+  return { price: priceResult.data, warning: profileWarning };
 }
 
 function isMissingFmpApiKeyError(error: unknown) {
@@ -253,7 +297,7 @@ export async function addHoldingAction(formData: FormData) {
   const portfolioId = await getDefaultPortfolioId();
   const { averageCost, currency, quantity, symbol } = parseHoldingInput(formData);
 
-  await ensureStockExists(symbol, currency);
+  const marketDataResult = await ensureStockReference(symbol);
 
   const supabase = await createClient();
   const { error } = await supabase.from("holdings").insert({
@@ -274,7 +318,10 @@ export async function addHoldingAction(formData: FormData) {
 
   revalidatePath("/holdings");
   revalidatePath("/dashboard");
-  redirectWithSuccess("Holding added.");
+  redirectWithFeedback({
+    success: "Holding added.",
+    warning: marketDataResult.warning,
+  });
 }
 
 export async function updateHoldingAction(formData: FormData) {
@@ -286,7 +333,7 @@ export async function updateHoldingAction(formData: FormData) {
     redirectWithError("Could not identify the holding to update.");
   }
 
-  await ensureStockExists(symbol, currency);
+  const marketDataResult = await ensureStockReference(symbol);
 
   const { error } = await supabase
     .from("holdings")
@@ -308,7 +355,10 @@ export async function updateHoldingAction(formData: FormData) {
 
   revalidatePath("/holdings");
   revalidatePath("/dashboard");
-  redirectWithSuccess("Holding updated.");
+  redirectWithFeedback({
+    success: "Holding updated.",
+    warning: marketDataResult.warning,
+  });
 }
 
 export async function deleteHoldingAction(formData: FormData) {
@@ -351,11 +401,12 @@ export async function refreshHoldingMarketDataAction(formData: FormData) {
     redirectWithError("Could not load the holding to refresh.");
   }
 
-  const price = await refreshMarketDataForSymbol(holding.symbol);
+  const marketDataResult = await refreshMarketDataForSymbol(holding.symbol);
 
   revalidatePath("/holdings");
   revalidatePath("/dashboard");
-  redirectWithSuccess(
-    `Market data refreshed for ${price.symbol} (${price.priceDate}).`,
-  );
+  redirectWithFeedback({
+    success: `Market data refreshed for ${marketDataResult.price.symbol} (${marketDataResult.price.priceDate}).`,
+    warning: marketDataResult.warning,
+  });
 }
