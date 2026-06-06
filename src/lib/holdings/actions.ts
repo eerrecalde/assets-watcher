@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
+import {
+  createFinancialModelingPrepProvider,
+  fetchAndCacheCompanyProfile,
+} from "@/lib/market-data";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import { createClient } from "@/lib/supabase/server";
@@ -85,6 +89,24 @@ async function getAuthenticatedSupabase() {
 
 async function ensureStockExists(symbol: string, currency: string) {
   const admin = createAdminClient();
+
+  try {
+    const provider = createFinancialModelingPrepProvider();
+    const result = await fetchAndCacheCompanyProfile({
+      provider,
+      supabase: admin,
+      symbol,
+    });
+
+    if (result.ok) {
+      return;
+    }
+  } catch (error) {
+    if (!isMissingFmpApiKeyError(error)) {
+      console.error(error);
+    }
+  }
+
   const { error } = await admin.from("stocks").upsert(
     {
       symbol,
@@ -101,6 +123,13 @@ async function ensureStockExists(symbol: string, currency: string) {
   if (error) {
     redirectWithError("Could not create the stock reference for this symbol.");
   }
+}
+
+function isMissingFmpApiKeyError(error: unknown) {
+  return (
+    error instanceof Error &&
+    error.message === "Missing required environment variable: FMP_API_KEY"
+  );
 }
 
 function parseHoldingInput(formData: FormData) {
