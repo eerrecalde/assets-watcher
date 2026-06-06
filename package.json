@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint .",
     "test": "vitest run",
+    "test:market-data:live": "vitest run src/lib/market-data/fmp.live.test.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
