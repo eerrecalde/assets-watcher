@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import {
   addHoldingAction,
   deleteHoldingAction,
+  refreshHoldingMarketDataAction,
   updateHoldingAction,
 } from "@/lib/holdings/actions";
 import { updateCashBalanceAction } from "@/lib/portfolios/actions";
@@ -539,6 +540,19 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
                             >
                               Save
                             </button>
+                            <form action={refreshHoldingMarketDataAction}>
+                              <input
+                                name="holding_id"
+                                type="hidden"
+                                value={row.holding.id}
+                              />
+                              <button
+                                className="h-10 rounded-md border border-emerald-900 px-3 text-sm font-medium text-emerald-200 transition hover:border-emerald-700 hover:text-emerald-100"
+                                type="submit"
+                              >
+                                Refresh
+                              </button>
+                            </form>
                             <form action={deleteHoldingAction}>
                               <input
                                 name="holding_id"
