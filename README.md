@@ -39,10 +39,12 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
 SUPABASE_SECRET_KEY=sb_secret_your_key
 FMP_API_KEY=your_financial_modeling_prep_api_key
+MARKET_DATA_REFRESH_SECRET=replace_with_a_long_random_secret
 ```
 
 `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are used by browser and server Supabase clients. `SUPABASE_SECRET_KEY` is server-only and must never be exposed through a `NEXT_PUBLIC_*` variable.
 `FMP_API_KEY` is also server-only and is used by market-data refresh code when calling Financial Modeling Prep.
+`MARKET_DATA_REFRESH_SECRET` is server-only and authorizes trusted scheduler calls to the refresh endpoint. If you deploy on Vercel Cron and prefer its conventional name, `CRON_SECRET` is also accepted.
 
 Apply committed migrations to the hosted project when setting up or updating the shared dev backend:
 
@@ -165,6 +167,8 @@ The market-data provider contract lives in `src/lib/market-data`. Providers must
 The Financial Modeling Prep adapter is available through `createFinancialModelingPrepProvider`. It reads `FMP_API_KEY` by default, calls FMP's stable server-side endpoints, normalizes provider-specific response fields into the shared contract, and maps provider failures such as missing symbols, rate limits, unavailable service responses, and invalid payloads into explicit market-data failure results.
 
 Market data cache helpers live in `src/lib/market-data/cache.ts`. They map normalized provider profiles into the shared `stocks` table and upsert by `symbol`, so repeated fetches refresh the cached company name, exchange, sector, industry, country, and currency without exposing provider credentials to browser clients. They also map the latest normalized provider quote and daily historical price batches into `stock_prices` and upsert by `symbol,price_date`, so refreshing a tracked symbol stores cached open, high, low, close, and volume rows for dashboard, holdings, and chart calculations.
+
+The scheduled refresh endpoint is available at `/api/market-data/refresh` for `GET` or `POST` requests from a trusted scheduler. Calls must include `Authorization: Bearer <MARKET_DATA_REFRESH_SECRET>` or, when using Vercel Cron naming, `Authorization: Bearer <CRON_SECRET>`. The job uses the server-only Supabase secret key, collects distinct symbols from holdings and watchlist items, refreshes the company profile and latest price for each symbol through Financial Modeling Prep, and returns a JSON summary with requested, refreshed, and failed counts. Per-symbol provider failures are reported in the JSON response without exposing provider keys to the browser.
 
 To run a live FMP smoke test, create or sign in to a Financial Modeling Prep account, copy an API key from the FMP dashboard, add `FMP_API_KEY` to `.env.local`, and run:
 
