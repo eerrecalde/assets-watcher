@@ -7,3 +7,7 @@ export function normalizeStockSymbol(symbol: string) {
 export function isValidNormalizedStockSymbol(symbol: string) {
   return NORMALIZED_STOCK_SYMBOL_PATTERN.test(symbol);
 }
+
+export function getStockDetailPath(symbol: string) {
+  return `/stocks/${encodeURIComponent(normalizeStockSymbol(symbol))}`;
+}

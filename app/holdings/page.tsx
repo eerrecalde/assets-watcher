@@ -5,6 +5,7 @@ import {
   FeedbackSnackbars,
   type FeedbackSnackbarMessage,
 } from "@/components/feedback-snackbars";
+import { StockSymbolLink } from "@/components/stocks/stock-symbol-link";
 import {
   addHoldingAction,
   deleteHoldingAction,
@@ -477,15 +478,22 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
                               type="hidden"
                               value={row.holding.id}
                             />
-                            <input
-                              autoCapitalize="characters"
-                              className="h-10 w-28 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm font-semibold text-white outline-none transition focus:border-emerald-400"
-                              defaultValue={row.holding.symbol}
-                              maxLength={15}
-                              name="symbol"
-                              pattern="[A-Za-z][A-Za-z0-9.-]{0,14}"
-                              required
-                            />
+                            <div className="grid gap-2">
+                              <StockSymbolLink
+                                className="text-sm font-semibold text-emerald-200 underline-offset-4 transition hover:text-emerald-100 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                                symbol={row.holding.symbol}
+                              />
+                              <input
+                                aria-label={`Edit ${row.holding.symbol} symbol`}
+                                autoCapitalize="characters"
+                                className="h-10 w-28 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm font-semibold text-white outline-none transition focus:border-emerald-400"
+                                defaultValue={row.holding.symbol}
+                                maxLength={15}
+                                name="symbol"
+                                pattern="[A-Za-z][A-Za-z0-9.-]{0,14}"
+                                required
+                              />
+                            </div>
                           </form>
                         </td>
                         <td className="px-4 py-4 align-top text-neutral-300">

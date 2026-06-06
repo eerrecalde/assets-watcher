@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getStockDetailPath,
   isValidNormalizedStockSymbol,
   normalizeStockSymbol,
 } from "./symbols";
@@ -21,5 +22,10 @@ describe("stock symbol helpers", () => {
     expect(isValidNormalizedStockSymbol("")).toBe(false);
     expect(isValidNormalizedStockSymbol("aapl")).toBe(false);
     expect(isValidNormalizedStockSymbol("1AAPL")).toBe(false);
+  });
+
+  it("builds normalized stock detail paths", () => {
+    expect(getStockDetailPath(" aapl ")).toBe("/stocks/AAPL");
+    expect(getStockDetailPath("brk.b")).toBe("/stocks/BRK.B");
   });
 });
