@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  cacheHistoricalPrices,
   cacheCompanyProfile,
   cacheLatestPrice,
   fetchAndCacheCompanyProfile,
+  fetchAndCacheHistoricalPrices,
   fetchAndCacheLatestPrice,
   mapCompanyProfileToStock,
   mapLatestPriceToStockPrice,
@@ -301,6 +303,144 @@ describe("cacheLatestPrice", () => {
   });
 });
 
+describe("cacheHistoricalPrices", () => {
+  it("upserts historical prices into the stock_prices cache as a batch", async () => {
+    const { client, upsert } = createPriceCacheClient();
+    const fetchedAt = new Date("2026-06-05T12:00:00.000Z");
+
+    const result = await cacheHistoricalPrices(
+      client,
+      [
+        {
+          symbol: "AAPL",
+          priceDate: "2026-06-05",
+          open: 199.5,
+          high: 203,
+          low: 198.25,
+          close: 202.75,
+          volume: 45678900,
+        },
+        {
+          symbol: "AAPL",
+          priceDate: "2026-06-04",
+          open: 198,
+          high: 201,
+          low: 197.5,
+          close: 199.25,
+          volume: 40123000,
+        },
+      ],
+      {
+        fetchedAt,
+        provider: "test-provider",
+      },
+    );
+
+    expect(upsert).toHaveBeenCalledWith(
+      [
+        {
+          symbol: "AAPL",
+          price_date: "2026-06-05",
+          open: "199.5",
+          high: "203",
+          low: "198.25",
+          close: "202.75",
+          volume: 45678900,
+        },
+        {
+          symbol: "AAPL",
+          price_date: "2026-06-04",
+          open: "198",
+          high: "201",
+          low: "197.5",
+          close: "199.25",
+          volume: 40123000,
+        },
+      ],
+      { onConflict: "symbol,price_date" },
+    );
+    expect(result).toEqual({
+      ok: true,
+      provider: "test-provider",
+      fetchedAt,
+      data: [
+        {
+          symbol: "AAPL",
+          priceDate: "2026-06-05",
+          open: 199.5,
+          high: 203,
+          low: 198.25,
+          close: 202.75,
+          volume: 45678900,
+        },
+        {
+          symbol: "AAPL",
+          priceDate: "2026-06-04",
+          open: 198,
+          high: 201,
+          low: 197.5,
+          close: 199.25,
+          volume: 40123000,
+        },
+      ],
+      warnings: [],
+    });
+  });
+
+  it("does not write when there are no historical prices to cache", async () => {
+    const { client, upsert } = createPriceCacheClient();
+    const fetchedAt = new Date("2026-06-05T12:00:00.000Z");
+
+    const result = await cacheHistoricalPrices(client, [], {
+      fetchedAt,
+      provider: "test-provider",
+    });
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: true,
+      provider: "test-provider",
+      fetchedAt,
+      data: [],
+      warnings: [],
+    });
+  });
+
+  it("returns a cache write failure when Supabase rejects the batch upsert", async () => {
+    const { client } = createPriceCacheClient({ message: "permission denied" });
+    const fetchedAt = new Date("2026-06-05T12:00:00.000Z");
+
+    const result = await cacheHistoricalPrices(
+      client,
+      [
+        {
+          symbol: "AAPL",
+          priceDate: "2026-06-05",
+          open: null,
+          high: null,
+          low: null,
+          close: 202.75,
+          volume: null,
+        },
+      ],
+      {
+        fetchedAt,
+        provider: "test-provider",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      provider: "test-provider",
+      fetchedAt,
+      error: {
+        code: "cache_write_failed",
+        message: "Could not cache historical prices for AAPL: permission denied",
+      },
+    });
+  });
+});
+
 describe("fetchAndCacheCompanyProfile", () => {
   it("fetches a company profile through the provider before caching it", async () => {
     const { client, upsert } = createCacheClient();
@@ -366,6 +506,100 @@ describe("fetchAndCacheCompanyProfile", () => {
     };
 
     const result = await fetchAndCacheCompanyProfile({
+      provider,
+      supabase: client,
+      symbol: "MISSING",
+    });
+
+    expect(upsert).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      ok: false,
+      provider: "test-provider",
+      fetchedAt,
+      error: {
+        code: "not_found",
+        message: "Symbol was not found.",
+      },
+    });
+  });
+});
+
+describe("fetchAndCacheHistoricalPrices", () => {
+  it("fetches historical prices through the provider before caching them", async () => {
+    const { client, upsert } = createPriceCacheClient();
+    const fetchedAt = new Date("2026-06-05T12:00:00.000Z");
+    const provider: MarketDataProvider = {
+      id: "test-provider",
+      displayName: "Test Provider",
+      getCompanyProfile: vi.fn(),
+      getLatestPrice: vi.fn(),
+      getHistoricalPrices: vi.fn(async () =>
+        createMarketDataSuccess({
+          provider: "test-provider",
+          fetchedAt,
+          data: [
+            {
+              symbol: "AAPL",
+              priceDate: "2026-06-05",
+              open: 199.5,
+              high: 203,
+              low: 198.25,
+              close: 202.75,
+              volume: 45678900,
+            },
+          ],
+        }),
+      ),
+      getFundamentals: vi.fn(),
+    };
+
+    const request = {
+      startDate: "2026-06-01",
+      endDate: "2026-06-05",
+      limit: 5,
+    };
+    const result = await fetchAndCacheHistoricalPrices({
+      provider,
+      request,
+      supabase: client,
+      symbol: "aapl",
+    });
+
+    expect(provider.getHistoricalPrices).toHaveBeenCalledWith("aapl", request);
+    expect(upsert).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      ok: true,
+      provider: "test-provider",
+      data: [
+        {
+          symbol: "AAPL",
+          priceDate: "2026-06-05",
+          close: 202.75,
+        },
+      ],
+    });
+  });
+
+  it("does not write to the cache when the historical provider fetch fails", async () => {
+    const { client, upsert } = createPriceCacheClient();
+    const fetchedAt = new Date("2026-06-05T12:00:00.000Z");
+    const provider: MarketDataProvider = {
+      id: "test-provider",
+      displayName: "Test Provider",
+      getCompanyProfile: vi.fn(),
+      getLatestPrice: vi.fn(),
+      getHistoricalPrices: vi.fn(async () =>
+        createMarketDataFailure<MarketDataPrice[]>({
+          provider: "test-provider",
+          fetchedAt,
+          code: "not_found",
+          message: "Symbol was not found.",
+        }),
+      ),
+      getFundamentals: vi.fn(),
+    };
+
+    const result = await fetchAndCacheHistoricalPrices({
       provider,
       supabase: client,
       symbol: "MISSING",
