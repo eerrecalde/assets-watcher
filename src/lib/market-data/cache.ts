@@ -2,28 +2,37 @@ import {
   createMarketDataSuccess,
   normalizeMarketDataSymbol,
   type MarketDataCompanyProfile,
+  type MarketDataPrice,
   type MarketDataProvider,
   type MarketDataProviderErrorCode,
 } from "./provider";
 import type { Database } from "@/types/supabase";
 
 type StockInsert = Database["public"]["Tables"]["stocks"]["Insert"];
+type StockPriceInsert =
+  Database["public"]["Tables"]["stock_prices"]["Insert"];
 
 export type MarketDataCacheErrorCode =
   | MarketDataProviderErrorCode
   | "cache_write_failed";
 
+type MarketDataCacheFailure = {
+  ok: false;
+  provider: string;
+  fetchedAt: Date;
+  error: {
+    code: MarketDataCacheErrorCode;
+    message: string;
+  };
+};
+
 export type CompanyProfileCacheResult =
   | ReturnType<typeof createMarketDataSuccess<MarketDataCompanyProfile>>
-  | {
-      ok: false;
-      provider: string;
-      fetchedAt: Date;
-      error: {
-        code: MarketDataCacheErrorCode;
-        message: string;
-      };
-    };
+  | MarketDataCacheFailure;
+
+export type LatestPriceCacheResult =
+  | ReturnType<typeof createMarketDataSuccess<MarketDataPrice>>
+  | MarketDataCacheFailure;
 
 export type CompanyProfileCacheClient = {
   from(table: "stocks"): {
@@ -34,7 +43,22 @@ export type CompanyProfileCacheClient = {
   };
 };
 
+export type LatestPriceCacheClient = {
+  from(table: "stock_prices"): {
+    upsert(
+      values: StockPriceInsert,
+      options: { onConflict: "symbol,price_date" },
+    ): PromiseLike<{ error: { message: string } | null }>;
+  };
+};
+
 type CacheCompanyProfileOptions = {
+  fetchedAt?: Date;
+  provider?: string;
+  warnings?: string[];
+};
+
+type CacheLatestPriceOptions = {
   fetchedAt?: Date;
   provider?: string;
   warnings?: string[];
@@ -79,6 +103,45 @@ export async function cacheCompanyProfile(
   });
 }
 
+export async function cacheLatestPrice(
+  supabase: LatestPriceCacheClient,
+  price: MarketDataPrice,
+  {
+    fetchedAt = new Date(),
+    provider = "market-data-cache",
+    warnings = [],
+  }: CacheLatestPriceOptions = {},
+): Promise<LatestPriceCacheResult> {
+  const stockPrice = mapLatestPriceToStockPrice(price);
+  const { error } = await supabase
+    .from("stock_prices")
+    .upsert(stockPrice, { onConflict: "symbol,price_date" });
+
+  if (error) {
+    return createCacheFailure({
+      code: "cache_write_failed",
+      fetchedAt,
+      message: `Could not cache latest price for ${stockPrice.symbol} on ${stockPrice.price_date}: ${error.message}`,
+      provider,
+    });
+  }
+
+  return createMarketDataSuccess({
+    data: {
+      symbol: stockPrice.symbol,
+      priceDate: stockPrice.price_date,
+      open: parseOptionalNumber(stockPrice.open),
+      high: parseOptionalNumber(stockPrice.high),
+      low: parseOptionalNumber(stockPrice.low),
+      close: Number(stockPrice.close),
+      volume: stockPrice.volume ?? null,
+    },
+    fetchedAt,
+    provider,
+    warnings,
+  });
+}
+
 export async function fetchAndCacheCompanyProfile({
   provider,
   supabase,
@@ -101,6 +164,28 @@ export async function fetchAndCacheCompanyProfile({
   });
 }
 
+export async function fetchAndCacheLatestPrice({
+  provider,
+  supabase,
+  symbol,
+}: {
+  provider: MarketDataProvider;
+  supabase: LatestPriceCacheClient;
+  symbol: string;
+}): Promise<LatestPriceCacheResult> {
+  const result = await provider.getLatestPrice(symbol);
+
+  if (!result.ok) {
+    return result;
+  }
+
+  return cacheLatestPrice(supabase, result.data, {
+    fetchedAt: result.fetchedAt,
+    provider: result.provider,
+    warnings: result.warnings,
+  });
+}
+
 export function mapCompanyProfileToStock(
   profile: MarketDataCompanyProfile,
 ): StockInsert {
@@ -117,6 +202,20 @@ export function mapCompanyProfileToStock(
   };
 }
 
+export function mapLatestPriceToStockPrice(
+  price: MarketDataPrice,
+): StockPriceInsert {
+  return {
+    symbol: normalizeMarketDataSymbol(price.symbol),
+    price_date: price.priceDate,
+    open: stringifyOptionalNumber(price.open),
+    high: stringifyOptionalNumber(price.high),
+    low: stringifyOptionalNumber(price.low),
+    close: stringifyRequiredNumber(price.close),
+    volume: price.volume,
+  };
+}
+
 function createCacheFailure({
   code,
   fetchedAt,
@@ -127,7 +226,7 @@ function createCacheFailure({
   fetchedAt: Date;
   message: string;
   provider: string;
-}): CompanyProfileCacheResult {
+}): MarketDataCacheFailure {
   return {
     ok: false,
     provider,
@@ -147,4 +246,20 @@ function normalizeOptionalText(value: string | null) {
 
 function normalizeRequiredText(value: string | null, fallback: string) {
   return normalizeOptionalText(value) ?? fallback;
+}
+
+function stringifyOptionalNumber(value: number | null) {
+  return value === null ? null : stringifyRequiredNumber(value);
+}
+
+function stringifyRequiredNumber(value: number) {
+  if (!Number.isFinite(value)) {
+    throw new Error("Market data numeric values must be finite.");
+  }
+
+  return String(value);
+}
+
+function parseOptionalNumber(value: string | null | undefined) {
+  return value === null || value === undefined ? null : Number(value);
 }

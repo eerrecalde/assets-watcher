@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import {
   createFinancialModelingPrepProvider,
   fetchAndCacheCompanyProfile,
+  fetchAndCacheLatestPrice,
 } from "@/lib/market-data";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
@@ -92,21 +93,41 @@ async function ensureStockExists(symbol: string, currency: string) {
 
   try {
     const provider = createFinancialModelingPrepProvider();
-    const result = await fetchAndCacheCompanyProfile({
+    const profileResult = await fetchAndCacheCompanyProfile({
       provider,
       supabase: admin,
       symbol,
     });
 
-    if (result.ok) {
-      return;
+    if (!profileResult.ok) {
+      await ensureFallbackStockReference(admin, symbol, currency);
     }
+
+    const priceResult = await fetchAndCacheLatestPrice({
+      provider,
+      supabase: admin,
+      symbol,
+    });
+
+    if (!priceResult.ok && priceResult.error.code === "cache_write_failed") {
+      console.error(priceResult.error.message);
+    }
+
+    return;
   } catch (error) {
     if (!isMissingFmpApiKeyError(error)) {
       console.error(error);
     }
   }
 
+  await ensureFallbackStockReference(admin, symbol, currency);
+}
+
+async function ensureFallbackStockReference(
+  admin: ReturnType<typeof createAdminClient>,
+  symbol: string,
+  currency: string,
+) {
   const { error } = await admin.from("stocks").upsert(
     {
       symbol,

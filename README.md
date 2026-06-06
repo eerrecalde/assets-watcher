@@ -164,7 +164,7 @@ The market-data provider contract lives in `src/lib/market-data`. Providers must
 
 The Financial Modeling Prep adapter is available through `createFinancialModelingPrepProvider`. It reads `FMP_API_KEY` by default, calls FMP's stable server-side endpoints, normalizes provider-specific response fields into the shared contract, and maps provider failures such as missing symbols, rate limits, unavailable service responses, and invalid payloads into explicit market-data failure results.
 
-Company profile cache helpers live in `src/lib/market-data/cache.ts`. They map normalized provider profiles into the shared `stocks` table and upsert by `symbol`, so repeated fetches refresh the cached company name, exchange, sector, industry, country, and currency without exposing provider credentials to browser clients.
+Market data cache helpers live in `src/lib/market-data/cache.ts`. They map normalized provider profiles into the shared `stocks` table and upsert by `symbol`, so repeated fetches refresh the cached company name, exchange, sector, industry, country, and currency without exposing provider credentials to browser clients. They also map the latest normalized provider quote into `stock_prices` and upsert by `symbol,price_date`, so refreshing a tracked symbol stores the latest cached open, high, low, close, and volume for dashboard and holdings calculations.
 
 To run a live FMP smoke test, create or sign in to a Financial Modeling Prep account, copy an API key from the FMP dashboard, add `FMP_API_KEY` to `.env.local`, and run:
 
