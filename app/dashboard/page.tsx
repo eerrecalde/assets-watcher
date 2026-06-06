@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
+import { StockSymbolLink } from "@/components/stocks/stock-symbol-link";
 import { signOutAction } from "@/lib/auth/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import {
@@ -364,8 +365,11 @@ export default async function DashboardPage() {
 
                       return (
                         <tr className="bg-neutral-950" key={row.holding.id}>
-                          <td className="px-4 py-4 align-top font-semibold text-white">
-                            {row.holding.symbol}
+                          <td className="px-4 py-4 align-top">
+                            <StockSymbolLink
+                              className="font-semibold text-emerald-200 underline-offset-4 transition hover:text-emerald-100 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                              symbol={row.holding.symbol}
+                            />
                           </td>
                           <td className="px-4 py-4 align-top text-neutral-300">
                             {row.stockName}
