@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 import { createFinancialModelingPrepProvider } from "./fmp";
 
 const fmpApiKey = process.env.FMP_API_KEY ?? readLocalEnv("FMP_API_KEY");
-const runIfApiKey = fmpApiKey ? it : it.skip;
+const shouldRunLiveTest =
+  process.env.RUN_LIVE_MARKET_DATA_TESTS === "1" && fmpApiKey;
+const runIfEnabled = shouldRunLiveTest ? it : it.skip;
 
 describe("FinancialModelingPrepProvider live smoke test", () => {
-  runIfApiKey(
+  runIfEnabled(
     "fetches and normalizes AAPL profile, latest price, and historical prices",
     async () => {
       const provider = createFinancialModelingPrepProvider({
