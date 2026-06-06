@@ -38,9 +38,11 @@ Fill `.env.local` with values from the hosted Supabase project dashboard:
 NEXT_PUBLIC_SUPABASE_URL=https://your-project-ref.supabase.co
 NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
 SUPABASE_SECRET_KEY=sb_secret_your_key
+FMP_API_KEY=your_financial_modeling_prep_api_key
 ```
 
 `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` are used by browser and server Supabase clients. `SUPABASE_SECRET_KEY` is server-only and must never be exposed through a `NEXT_PUBLIC_*` variable.
+`FMP_API_KEY` is also server-only and is used by market-data refresh code when calling Financial Modeling Prep.
 
 Apply committed migrations to the hosted project when setting up or updating the shared dev backend:
 
@@ -159,3 +161,14 @@ The dashboard and holdings page use the authenticated Supabase server client for
 ## Market Data Provider Interface
 
 The market-data provider contract lives in `src/lib/market-data`. Providers must return normalized company profile, latest price, historical price, and fundamentals data through explicit success or failure results. The interface is provider-agnostic so future adapters can plug in external services server-side without leaking API keys or provider-specific response shapes into UI code.
+
+The Financial Modeling Prep adapter is available through `createFinancialModelingPrepProvider`. It reads `FMP_API_KEY` by default, calls FMP's stable server-side endpoints, normalizes provider-specific response fields into the shared contract, and maps provider failures such as missing symbols, rate limits, unavailable service responses, and invalid payloads into explicit market-data failure results.
+
+To run a live FMP smoke test, create or sign in to a Financial Modeling Prep account, copy an API key from the FMP dashboard, add `FMP_API_KEY` to `.env.local`, and run:
+
+```bash
+npm run test:market-data:live
+```
+
+You can also pass the key only for a single command with `FMP_API_KEY=your_financial_modeling_prep_api_key npm run test:market-data:live`.
+The live test fetches an AAPL company profile, latest quote, and a small historical price sample. It is skipped unless `FMP_API_KEY` is present so normal test runs do not call the external provider.
