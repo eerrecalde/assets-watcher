@@ -2,6 +2,7 @@ import {
   createMarketDataSuccess,
   normalizeMarketDataSymbol,
   type MarketDataCompanyProfile,
+  type HistoricalPriceRequest,
   type MarketDataPrice,
   type MarketDataProvider,
   type MarketDataProviderErrorCode,
@@ -11,6 +12,7 @@ import type { Database } from "@/types/supabase";
 type StockInsert = Database["public"]["Tables"]["stocks"]["Insert"];
 type StockPriceInsert =
   Database["public"]["Tables"]["stock_prices"]["Insert"];
+type StockPriceUpsert = StockPriceInsert | StockPriceInsert[];
 
 export type MarketDataCacheErrorCode =
   | MarketDataProviderErrorCode
@@ -34,6 +36,10 @@ export type LatestPriceCacheResult =
   | ReturnType<typeof createMarketDataSuccess<MarketDataPrice>>
   | MarketDataCacheFailure;
 
+export type HistoricalPricesCacheResult =
+  | ReturnType<typeof createMarketDataSuccess<MarketDataPrice[]>>
+  | MarketDataCacheFailure;
+
 export type CompanyProfileCacheClient = {
   from(table: "stocks"): {
     upsert(
@@ -46,7 +52,7 @@ export type CompanyProfileCacheClient = {
 export type LatestPriceCacheClient = {
   from(table: "stock_prices"): {
     upsert(
-      values: StockPriceInsert,
+      values: StockPriceUpsert,
       options: { onConflict: "symbol,price_date" },
     ): PromiseLike<{ error: { message: string } | null }>;
   };
@@ -59,6 +65,12 @@ type CacheCompanyProfileOptions = {
 };
 
 type CacheLatestPriceOptions = {
+  fetchedAt?: Date;
+  provider?: string;
+  warnings?: string[];
+};
+
+type CacheHistoricalPricesOptions = {
   fetchedAt?: Date;
   provider?: string;
   warnings?: string[];
@@ -142,6 +154,44 @@ export async function cacheLatestPrice(
   });
 }
 
+export async function cacheHistoricalPrices(
+  supabase: LatestPriceCacheClient,
+  prices: MarketDataPrice[],
+  {
+    fetchedAt = new Date(),
+    provider = "market-data-cache",
+    warnings = [],
+  }: CacheHistoricalPricesOptions = {},
+): Promise<HistoricalPricesCacheResult> {
+  const stockPrices = prices.map(mapLatestPriceToStockPrice);
+
+  if (stockPrices.length > 0) {
+    const { error } = await supabase
+      .from("stock_prices")
+      .upsert(stockPrices, { onConflict: "symbol,price_date" });
+
+    if (error) {
+      const symbols = Array.from(
+        new Set(stockPrices.map((stockPrice) => stockPrice.symbol)),
+      ).join(", ");
+
+      return createCacheFailure({
+        code: "cache_write_failed",
+        fetchedAt,
+        message: `Could not cache historical prices for ${symbols}: ${error.message}`,
+        provider,
+      });
+    }
+  }
+
+  return createMarketDataSuccess({
+    data: stockPrices.map(mapStockPriceToMarketDataPrice),
+    fetchedAt,
+    provider,
+    warnings,
+  });
+}
+
 export async function fetchAndCacheCompanyProfile({
   provider,
   supabase,
@@ -186,6 +236,30 @@ export async function fetchAndCacheLatestPrice({
   });
 }
 
+export async function fetchAndCacheHistoricalPrices({
+  provider,
+  request,
+  supabase,
+  symbol,
+}: {
+  provider: MarketDataProvider;
+  request?: HistoricalPriceRequest;
+  supabase: LatestPriceCacheClient;
+  symbol: string;
+}): Promise<HistoricalPricesCacheResult> {
+  const result = await provider.getHistoricalPrices(symbol, request);
+
+  if (!result.ok) {
+    return result;
+  }
+
+  return cacheHistoricalPrices(supabase, result.data, {
+    fetchedAt: result.fetchedAt,
+    provider: result.provider,
+    warnings: result.warnings,
+  });
+}
+
 export function mapCompanyProfileToStock(
   profile: MarketDataCompanyProfile,
 ): StockInsert {
@@ -213,6 +287,20 @@ export function mapLatestPriceToStockPrice(
     low: stringifyOptionalNumber(price.low),
     close: stringifyRequiredNumber(price.close),
     volume: price.volume,
+  };
+}
+
+function mapStockPriceToMarketDataPrice(
+  stockPrice: StockPriceInsert,
+): MarketDataPrice {
+  return {
+    symbol: stockPrice.symbol,
+    priceDate: stockPrice.price_date,
+    open: parseOptionalNumber(stockPrice.open),
+    high: parseOptionalNumber(stockPrice.high),
+    low: parseOptionalNumber(stockPrice.low),
+    close: Number(stockPrice.close),
+    volume: stockPrice.volume ?? null,
   };
 }
 
