@@ -94,6 +94,23 @@ describe("createStockProfileFields", () => {
       ]),
     );
   });
+
+  it("does not replace unknown profile fields with empty display strings", () => {
+    const fields = createStockProfileFields({
+      ...profile,
+      country: " ",
+      currency: "",
+      name: " ",
+    });
+
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        { label: "Company", value: "Unavailable", isMissing: true },
+        { label: "Country", value: "Unavailable", isMissing: true },
+        { label: "Currency", value: "Unavailable", isMissing: true },
+      ]),
+    );
+  });
 });
 
 describe("createLatestCachedPriceSummary", () => {
@@ -114,6 +131,18 @@ describe("createLatestCachedPriceSummary", () => {
         close: "not-a-number",
       }),
     ).toBeNull();
+  });
+
+  it("keeps a real zero close instead of treating it as missing", () => {
+    expect(
+      createLatestCachedPriceSummary({
+        ...latestPrice,
+        close: "0",
+      }),
+    ).toMatchObject({
+      close: 0,
+      priceDate: "2026-06-05",
+    });
   });
 });
 
@@ -535,6 +564,30 @@ describe("createHistoricalPriceChartPoints", () => {
         },
       ]),
     ).toEqual([]);
+  });
+
+  it("keeps only usable historical closes so chart empty states can target missing history", () => {
+    expect(
+      createHistoricalPriceChartPoints([
+        {
+          price_date: "2026-06-03",
+          close: "not-a-number",
+        },
+        {
+          price_date: "2026-06-04",
+          close: "not-a-number",
+        },
+        {
+          price_date: "2026-06-05",
+          close: "101.5",
+        },
+      ]),
+    ).toEqual([
+      {
+        close: 101.5,
+        priceDate: "2026-06-05",
+      },
+    ]);
   });
 });
 
