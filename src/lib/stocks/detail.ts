@@ -35,8 +35,10 @@ export type LatestCachedPriceSummary = {
 };
 
 export type CachedFiftyTwoWeekRange = {
+  hasFullWindow: boolean;
   high: number;
   low: number;
+  requiredStartDate: string;
   rowCount: number;
   startDate: string;
   endDate: string;
@@ -45,6 +47,42 @@ export type CachedFiftyTwoWeekRange = {
 export type HistoricalPriceChartPoint = {
   close: number;
   priceDate: string;
+};
+
+export type CachedMovementWindowId = "1w" | "1m" | "6m" | "1y";
+
+export type CachedPriceMovementMetric = {
+  baselineClose: number | null;
+  baselineDate: string | null;
+  id: CachedMovementWindowId;
+  label: string;
+  latestClose: number | null;
+  latestDate: string | null;
+  percentChange: number | null;
+  targetDate: string | null;
+  unavailableReason: string | null;
+};
+
+export type CachedMovingAverageId = "50d" | "200d";
+
+export type CachedMovingAverageMetric = {
+  endDate: string | null;
+  id: CachedMovingAverageId;
+  label: string;
+  requiredRowCount: number;
+  rowCount: number;
+  startDate: string | null;
+  unavailableReason: string | null;
+  value: number | null;
+};
+
+export type CachedPriceMovementSummary = {
+  earliestDate: string | null;
+  latestClose: number | null;
+  latestDate: string | null;
+  movingAverages: CachedMovingAverageMetric[];
+  movements: CachedPriceMovementMetric[];
+  rowCount: number;
 };
 
 export function createStockProfileFields(
@@ -104,19 +142,45 @@ export function createCachedFiftyTwoWeekRange(
     return null;
   }
 
+  const startDate = usableRows.reduce(
+    (earliest, row) => (row.priceDate < earliest ? row.priceDate : earliest),
+    usableRows[0].priceDate,
+  );
+  const endDate = usableRows.reduce(
+    (latest, row) => (row.priceDate > latest ? row.priceDate : latest),
+    usableRows[0].priceDate,
+  );
+  const requiredStartDate = getTrailingFiftyTwoWeekStartDate(endDate);
+
   return {
+    hasFullWindow: startDate <= requiredStartDate,
     high: Math.max(...usableRows.map((row) => row.high)),
     low: Math.min(...usableRows.map((row) => row.low)),
+    requiredStartDate,
     rowCount: usableRows.length,
-    startDate: usableRows.reduce(
-      (earliest, row) =>
-        row.priceDate < earliest ? row.priceDate : earliest,
-      usableRows[0].priceDate,
+    startDate,
+    endDate,
+  };
+}
+
+export function createCachedPriceMovementSummary(
+  priceRows: Pick<StockPriceInput, "close" | "price_date">[],
+): CachedPriceMovementSummary {
+  const rows = createHistoricalPriceChartPoints(priceRows);
+  const latestRow = rows.at(-1) ?? null;
+  const earliestRow = rows[0] ?? null;
+
+  return {
+    earliestDate: earliestRow?.priceDate ?? null,
+    latestClose: latestRow?.close ?? null,
+    latestDate: latestRow?.priceDate ?? null,
+    movingAverages: MOVING_AVERAGE_WINDOWS.map((window) =>
+      createCachedMovingAverageMetric(rows, window),
     ),
-    endDate: usableRows.reduce(
-      (latest, row) => (row.priceDate > latest ? row.priceDate : latest),
-      usableRows[0].priceDate,
+    movements: MOVEMENT_WINDOWS.map((window) =>
+      createCachedPriceMovementMetric(rows, window),
     ),
+    rowCount: rows.length,
   };
 }
 
@@ -152,6 +216,18 @@ export function getTrailingFiftyTwoWeekStartDate(priceDate: string) {
   return latestDate.toISOString().slice(0, 10);
 }
 
+export function getTrailingOneYearStartDate(priceDate: string) {
+  const latestDate = new Date(`${priceDate}T00:00:00.000Z`);
+
+  if (Number.isNaN(latestDate.getTime())) {
+    return priceDate;
+  }
+
+  latestDate.setUTCFullYear(latestDate.getUTCFullYear() - 1);
+
+  return latestDate.toISOString().slice(0, 10);
+}
+
 function createProfileField(
   label: string,
   value: string | null,
@@ -167,4 +243,131 @@ function createProfileField(
 
 function toPricePoint(value: NumericInput, fallback: number | null) {
   return toFiniteNumber(value) ?? fallback;
+}
+
+const MOVEMENT_WINDOWS = [
+  { amount: 7, id: "1w", label: "1 week", unit: "day" },
+  { amount: 1, id: "1m", label: "1 month", unit: "month" },
+  { amount: 6, id: "6m", label: "6 months", unit: "month" },
+  { amount: 1, id: "1y", label: "1 year", unit: "year" },
+] as const;
+
+const MOVING_AVERAGE_WINDOWS = [
+  { id: "50d", label: "50-day moving average", rowCount: 50 },
+  { id: "200d", label: "200-day moving average", rowCount: 200 },
+] as const;
+
+function createCachedPriceMovementMetric(
+  rows: HistoricalPriceChartPoint[],
+  window: (typeof MOVEMENT_WINDOWS)[number],
+): CachedPriceMovementMetric {
+  const latestRow = rows.at(-1) ?? null;
+  const targetDate = latestRow
+    ? subtractDateWindow(latestRow.priceDate, window)
+    : null;
+  const unavailableMetric = (
+    unavailableReason: string,
+  ): CachedPriceMovementMetric => ({
+    baselineClose: null,
+    baselineDate: null,
+    id: window.id,
+    label: window.label,
+    latestClose: latestRow?.close ?? null,
+    latestDate: latestRow?.priceDate ?? null,
+    percentChange: null,
+    targetDate,
+    unavailableReason,
+  });
+
+  if (!latestRow || !targetDate) {
+    return unavailableMetric("No cached close prices are available.");
+  }
+
+  if (latestRow.close <= 0) {
+    return unavailableMetric("Latest cached close is not above zero.");
+  }
+
+  const earliestRow = rows[0];
+
+  if (!earliestRow || earliestRow.priceDate > targetDate) {
+    return unavailableMetric(`Needs cached prices back to ${targetDate}.`);
+  }
+
+  const baselineRow = rows.findLast((row) => row.priceDate <= targetDate);
+
+  if (!baselineRow) {
+    return unavailableMetric(`Needs a cached close on or before ${targetDate}.`);
+  }
+
+  if (baselineRow.close <= 0) {
+    return unavailableMetric(
+      `Cached close on ${baselineRow.priceDate} is not above zero.`,
+    );
+  }
+
+  return {
+    baselineClose: baselineRow.close,
+    baselineDate: baselineRow.priceDate,
+    id: window.id,
+    label: window.label,
+    latestClose: latestRow.close,
+    latestDate: latestRow.priceDate,
+    percentChange: ((latestRow.close - baselineRow.close) / baselineRow.close) * 100,
+    targetDate,
+    unavailableReason: null,
+  };
+}
+
+function createCachedMovingAverageMetric(
+  rows: HistoricalPriceChartPoint[],
+  window: (typeof MOVING_AVERAGE_WINDOWS)[number],
+): CachedMovingAverageMetric {
+  const averagedRows = rows.slice(-window.rowCount);
+
+  if (averagedRows.length < window.rowCount) {
+    return {
+      endDate: rows.at(-1)?.priceDate ?? null,
+      id: window.id,
+      label: window.label,
+      requiredRowCount: window.rowCount,
+      rowCount: averagedRows.length,
+      startDate: averagedRows[0]?.priceDate ?? null,
+      unavailableReason: `Needs at least ${window.rowCount} cached daily closes.`,
+      value: null,
+    };
+  }
+
+  return {
+    endDate: averagedRows.at(-1)?.priceDate ?? null,
+    id: window.id,
+    label: window.label,
+    requiredRowCount: window.rowCount,
+    rowCount: averagedRows.length,
+    startDate: averagedRows[0]?.priceDate ?? null,
+    unavailableReason: null,
+    value:
+      averagedRows.reduce((total, row) => total + row.close, 0) /
+      averagedRows.length,
+  };
+}
+
+function subtractDateWindow(
+  priceDate: string,
+  window: (typeof MOVEMENT_WINDOWS)[number],
+) {
+  const date = new Date(`${priceDate}T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  if (window.unit === "day") {
+    date.setUTCDate(date.getUTCDate() - window.amount);
+  } else if (window.unit === "month") {
+    date.setUTCMonth(date.getUTCMonth() - window.amount);
+  } else {
+    date.setUTCFullYear(date.getUTCFullYear() - window.amount);
+  }
+
+  return date.toISOString().slice(0, 10);
 }
