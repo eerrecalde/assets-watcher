@@ -6,10 +6,13 @@ import {
   createHistoricalPriceChartPoints,
   createLatestCachedPriceSummary,
   createStockProfileFields,
+  createStockFundamentalsSummary,
   getTrailingFiftyTwoWeekStartDate,
   getTrailingOneYearStartDate,
+  selectLatestRelevantFundamentals,
   type StockPriceInput,
   type StockProfileInput,
+  type StockFundamentalInput,
 } from "./detail";
 
 const profile: StockProfileInput = {
@@ -31,6 +34,26 @@ const latestPrice: StockPriceInput = {
   close: "202.75",
   volume: 45678900,
   created_at: "2026-06-05T12:15:00.000Z",
+};
+
+const fundamentals: StockFundamentalInput = {
+  symbol: "AAPL",
+  fiscal_period: "FY",
+  fiscal_year: 2025,
+  period_type: "annual",
+  eps: "6.1",
+  book_value_per_share: "4.2",
+  pe_ratio: "29.1",
+  pb_ratio: "42",
+  debt_to_equity: "1.32",
+  current_ratio: "0.95",
+  dividend_yield: "0.005",
+  revenue: "391000000000",
+  net_income: "98000000000",
+  free_cash_flow: "104000000000",
+  total_debt: "95000000000",
+  total_equity: "72000000000",
+  created_at: "2026-06-06T08:30:00.000Z",
 };
 
 describe("createStockProfileFields", () => {
@@ -276,6 +299,201 @@ describe("createCachedPriceMovementSummary", () => {
         value: null,
       },
     ]);
+  });
+});
+
+describe("createStockFundamentalsSummary", () => {
+  it("groups complete cached fundamentals for display", () => {
+    expect(createStockFundamentalsSummary(fundamentals)).toEqual({
+      cachedAt: "2026-06-06T08:30:00.000Z",
+      fiscalPeriod: "FY",
+      fiscalYear: 2025,
+      periodType: "annual",
+      valuationMetrics: [
+        { format: "currency", isMissing: false, label: "EPS", value: 6.1 },
+        {
+          format: "currency",
+          isMissing: false,
+          label: "Book value / share",
+          value: 4.2,
+        },
+        {
+          format: "number",
+          isMissing: false,
+          label: "P/E ratio",
+          value: 29.1,
+        },
+        { format: "number", isMissing: false, label: "P/B ratio", value: 42 },
+        {
+          format: "percentage",
+          isMissing: false,
+          label: "Dividend yield",
+          value: 0.005,
+        },
+      ],
+      qualityAndSafetyMetrics: [
+        {
+          format: "number",
+          isMissing: false,
+          label: "Debt / equity",
+          value: 1.32,
+        },
+        {
+          format: "number",
+          isMissing: false,
+          label: "Current ratio",
+          value: 0.95,
+        },
+        {
+          format: "currency",
+          isMissing: false,
+          label: "Revenue",
+          value: 391000000000,
+        },
+        {
+          format: "currency",
+          isMissing: false,
+          label: "Net income",
+          value: 98000000000,
+        },
+        {
+          format: "currency",
+          isMissing: false,
+          label: "Free cash flow",
+          value: 104000000000,
+        },
+        {
+          format: "currency",
+          isMissing: false,
+          label: "Total debt",
+          value: 95000000000,
+        },
+        {
+          format: "currency",
+          isMissing: false,
+          label: "Total equity",
+          value: 72000000000,
+        },
+      ],
+    });
+  });
+
+  it("keeps partial cached fundamentals visible and marks missing metrics", () => {
+    const summary = createStockFundamentalsSummary({
+      ...fundamentals,
+      eps: "0",
+      book_value_per_share: null,
+      pe_ratio: "not-a-number",
+      dividend_yield: "0",
+      revenue: null,
+      total_debt: "0",
+    });
+
+    expect(summary?.valuationMetrics).toEqual(
+      expect.arrayContaining([
+        { format: "currency", isMissing: false, label: "EPS", value: 0 },
+        {
+          format: "currency",
+          isMissing: true,
+          label: "Book value / share",
+          value: null,
+        },
+        {
+          format: "number",
+          isMissing: true,
+          label: "P/E ratio",
+          value: null,
+        },
+        {
+          format: "percentage",
+          isMissing: false,
+          label: "Dividend yield",
+          value: 0,
+        },
+      ]),
+    );
+    expect(summary?.qualityAndSafetyMetrics).toEqual(
+      expect.arrayContaining([
+        {
+          format: "currency",
+          isMissing: true,
+          label: "Revenue",
+          value: null,
+        },
+        {
+          format: "currency",
+          isMissing: false,
+          label: "Total debt",
+          value: 0,
+        },
+      ]),
+    );
+  });
+
+  it("returns null when no cached fundamentals row exists", () => {
+    expect(createStockFundamentalsSummary(null)).toBeNull();
+  });
+});
+
+describe("selectLatestRelevantFundamentals", () => {
+  it("prefers TTM, then annual, then quarterly fundamentals", () => {
+    const annual = {
+      ...fundamentals,
+      fiscal_period: "FY",
+      fiscal_year: 2026,
+      period_type: "annual" as const,
+    };
+    const ttm = {
+      ...fundamentals,
+      fiscal_period: "TTM",
+      fiscal_year: 2025,
+      period_type: "ttm" as const,
+    };
+    const quarterly = {
+      ...fundamentals,
+      fiscal_period: "Q4",
+      fiscal_year: 2026,
+      period_type: "quarterly" as const,
+    };
+
+    expect(
+      selectLatestRelevantFundamentals([quarterly, annual, ttm]),
+    ).toBe(ttm);
+    expect(selectLatestRelevantFundamentals([quarterly, annual])).toBe(annual);
+    expect(selectLatestRelevantFundamentals([quarterly])).toBe(quarterly);
+  });
+
+  it("uses fiscal year and cache timestamp within the same period type", () => {
+    const olderTtm = {
+      ...fundamentals,
+      created_at: "2026-06-07T08:00:00.000Z",
+      fiscal_year: 2025,
+      period_type: "ttm" as const,
+    };
+    const newerFiscalYearTtm = {
+      ...fundamentals,
+      created_at: "2026-06-06T08:00:00.000Z",
+      fiscal_year: 2026,
+      period_type: "ttm" as const,
+    };
+    const refreshedSameYearTtm = {
+      ...newerFiscalYearTtm,
+      created_at: "2026-06-07T09:00:00.000Z",
+    };
+
+    expect(
+      selectLatestRelevantFundamentals([olderTtm, newerFiscalYearTtm]),
+    ).toBe(newerFiscalYearTtm);
+    expect(
+      selectLatestRelevantFundamentals([
+        newerFiscalYearTtm,
+        refreshedSameYearTtm,
+      ]),
+    ).toBe(refreshedSameYearTtm);
+  });
+
+  it("returns null when no fundamentals rows exist", () => {
+    expect(selectLatestRelevantFundamentals([])).toBeNull();
   });
 });
 

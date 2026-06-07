@@ -160,6 +160,77 @@ export type Database = {
         };
         Relationships: [];
       };
+      stock_fundamentals: {
+        Row: {
+          id: string;
+          symbol: string;
+          fiscal_period: string;
+          fiscal_year: number;
+          period_type: Database["public"]["Enums"]["fundamental_period_type"];
+          eps: string | null;
+          book_value_per_share: string | null;
+          pe_ratio: string | null;
+          pb_ratio: string | null;
+          debt_to_equity: string | null;
+          current_ratio: string | null;
+          dividend_yield: string | null;
+          revenue: string | null;
+          net_income: string | null;
+          free_cash_flow: string | null;
+          total_debt: string | null;
+          total_equity: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          symbol: string;
+          fiscal_period: string;
+          fiscal_year: number;
+          period_type: Database["public"]["Enums"]["fundamental_period_type"];
+          eps?: string | null;
+          book_value_per_share?: string | null;
+          pe_ratio?: string | null;
+          pb_ratio?: string | null;
+          debt_to_equity?: string | null;
+          current_ratio?: string | null;
+          dividend_yield?: string | null;
+          revenue?: string | null;
+          net_income?: string | null;
+          free_cash_flow?: string | null;
+          total_debt?: string | null;
+          total_equity?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          symbol?: string;
+          fiscal_period?: string;
+          fiscal_year?: number;
+          period_type?: Database["public"]["Enums"]["fundamental_period_type"];
+          eps?: string | null;
+          book_value_per_share?: string | null;
+          pe_ratio?: string | null;
+          pb_ratio?: string | null;
+          debt_to_equity?: string | null;
+          current_ratio?: string | null;
+          dividend_yield?: string | null;
+          revenue?: string | null;
+          net_income?: string | null;
+          free_cash_flow?: string | null;
+          total_debt?: string | null;
+          total_equity?: string | null;
+          created_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "stock_fundamentals_symbol_fkey";
+            columns: ["symbol"];
+            isOneToOne: false;
+            referencedRelation: "stocks";
+            referencedColumns: ["symbol"];
+          },
+        ];
+      };
       user_rules: {
         Row: {
           created_at: string;
