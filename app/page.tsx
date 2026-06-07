@@ -1,7 +1,7 @@
 const watchItems = [
   {
     label: "Manual tracking",
-    value: "Holdings, cash, and watchlist setup will be added in upcoming milestones.",
+    value: "Holdings, cash, and watchlist tracking keep owned and wanted stocks separate.",
   },
   {
     label: "Deterministic checks",

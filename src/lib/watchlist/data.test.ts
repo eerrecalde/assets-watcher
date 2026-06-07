@@ -4,7 +4,7 @@ const mocks = vi.hoisted(() => ({
   ensureDefaultPortfolioForUser: vi.fn(),
 }));
 
-vi.mock("@/lib/portfolios/defaults", () => ({
+vi.mock("../portfolios/defaults", () => ({
   ensureDefaultPortfolioForUser: mocks.ensureDefaultPortfolioForUser,
 }));
 

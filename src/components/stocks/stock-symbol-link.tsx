@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { getStockDetailPath, normalizeStockSymbol } from "@/lib/stocks/symbols";
+import { getStockDetailPath, normalizeStockSymbol } from "../../lib/stocks/symbols";
 
 type StockSymbolLinkProps = {
   className?: string;

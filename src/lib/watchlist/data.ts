@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
-import type { Database } from "@/types/supabase";
+import { ensureDefaultPortfolioForUser } from "../portfolios/defaults";
+import type { Database } from "../../types/supabase";
 
 type AppSupabaseClient = SupabaseClient<Database>;
 type PortfolioRow = Database["public"]["Tables"]["portfolios"]["Row"];
