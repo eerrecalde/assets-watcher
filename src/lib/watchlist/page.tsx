@@ -1,7 +1,17 @@
 import Link from "next/link";
+import type { ComponentProps } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import {
+  FeedbackSnackbars,
+  type FeedbackSnackbarMessage,
+} from "../../components/feedback-snackbars";
 import { StockSymbolLink } from "../../components/stocks/stock-symbol-link";
+import {
+  addWatchlistItemAction,
+  deleteWatchlistItemAction,
+  updateWatchlistItemAction,
+} from "./actions";
 import {
   listDefaultPortfolioWatchlistItems,
   type DefaultPortfolioWatchlistItem,
@@ -20,16 +30,77 @@ type AuthenticatedUser = {
   id: string;
 };
 
+type FormAction = ComponentProps<"form">["action"];
+
+type WatchlistFormActions = {
+  add: FormAction;
+  delete: FormAction;
+  update: FormAction;
+};
+
 export type WatchlistPageDependencies = {
   createSupabaseClient: () => Promise<AppSupabaseClient>;
+  feedbackParams?: Record<string, string | string[] | undefined>;
   listWatchlistItems?: (
     supabase: AppSupabaseClient,
     user: AuthenticatedUser,
   ) => Promise<DefaultPortfolioWatchlistResult>;
   redirectToLogin: (url: string) => never;
+  watchlistActions?: WatchlistFormActions;
 };
 
+const defaultWatchlistActions = {
+  add: addWatchlistItemAction,
+  delete: deleteWatchlistItemAction,
+  update: updateWatchlistItemAction,
+} satisfies WatchlistFormActions;
+
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
+
+function getMessageValue(
+  params: Record<string, string | string[] | undefined>,
+  key: string,
+) {
+  const value = params[key];
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function buildFeedbackMessages(
+  params: Record<string, string | string[] | undefined>,
+) {
+  const messages: FeedbackSnackbarMessage[] = [];
+  const noticeId = getMessageValue(params, "notice") ?? "notice";
+  const successMessage = getMessageValue(params, "success");
+  const warningMessage = getMessageValue(params, "warning");
+  const errorMessage = getMessageValue(params, "error");
+
+  if (successMessage) {
+    messages.push({
+      id: `${noticeId}:success`,
+      message: successMessage,
+      tone: "success",
+    });
+  }
+
+  if (warningMessage) {
+    messages.push({
+      id: `${noticeId}:warning`,
+      message: warningMessage,
+      tone: "warning",
+    });
+  }
+
+  if (errorMessage) {
+    messages.push({
+      id: `${noticeId}:error`,
+      message: errorMessage,
+      tone: "error",
+    });
+  }
+
+  return messages;
+}
 
 function formatDate(value: string) {
   const date = new Date(value.includes("T") ? value : `${value}T00:00:00.000Z`);
@@ -160,12 +231,70 @@ function EmptyWatchlistState() {
   );
 }
 
+function AddWatchlistItemForm({
+  action,
+  disabled,
+}: {
+  action: FormAction;
+  disabled: boolean;
+}) {
+  return (
+    <form
+      action={action}
+      className="mt-5 grid gap-4 lg:grid-cols-[minmax(8rem,12rem)_minmax(9rem,12rem)_minmax(16rem,1fr)_auto]"
+    >
+      <label className="grid gap-2 text-sm font-medium text-neutral-200">
+        Symbol
+        <input
+          autoCapitalize="characters"
+          className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white outline-none transition focus:border-emerald-400"
+          maxLength={15}
+          name="symbol"
+          pattern="[A-Za-z][A-Za-z0-9.-]{0,14}"
+          placeholder="AAPL"
+          required
+        />
+      </label>
+      <label className="grid gap-2 text-sm font-medium text-neutral-200">
+        Target price
+        <input
+          className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-base text-white outline-none transition focus:border-emerald-400"
+          min="0.000001"
+          name="target_price"
+          placeholder="150.00"
+          step="0.000001"
+          type="number"
+        />
+      </label>
+      <label className="grid gap-2 text-sm font-medium text-neutral-200">
+        Notes
+        <textarea
+          className="min-h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-base text-white outline-none transition focus:border-emerald-400"
+          maxLength={2000}
+          name="notes"
+          placeholder="Optional context"
+          rows={1}
+        />
+      </label>
+      <button
+        className="h-11 self-end rounded-md bg-emerald-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:bg-neutral-700 disabled:text-neutral-400"
+        disabled={disabled}
+        type="submit"
+      >
+        Add
+      </button>
+    </form>
+  );
+}
+
 function WatchlistTable({
+  actions,
   displayCurrency,
   items,
   latestPricesBySymbol,
   stocksBySymbol,
 }: {
+  actions: WatchlistFormActions;
   displayCurrency: string;
   items: DefaultPortfolioWatchlistItem[];
   latestPricesBySymbol: Map<
@@ -176,7 +305,7 @@ function WatchlistTable({
 }) {
   return (
     <div className="mt-5 overflow-x-auto rounded-lg border border-neutral-800">
-      <table className="min-w-[72rem] w-full border-collapse text-left text-sm">
+      <table className="min-w-[86rem] w-full border-collapse text-left text-sm">
         <thead className="bg-neutral-900 text-xs uppercase tracking-[0.14em] text-neutral-400">
           <tr>
             <th className="px-4 py-3 font-medium">Symbol</th>
@@ -186,6 +315,7 @@ function WatchlistTable({
             <th className="px-4 py-3 font-medium">Target gap</th>
             <th className="px-4 py-3 font-medium">Notes</th>
             <th className="px-4 py-3 font-medium">Added</th>
+            <th className="px-4 py-3 font-medium">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-neutral-800">
@@ -193,10 +323,23 @@ function WatchlistTable({
             const stock = stocksBySymbol.get(item.symbol);
             const latestPrice = latestPricesBySymbol.get(item.symbol);
             const priceCurrency = stock?.currency ?? displayCurrency;
+            const updateFormId = `update-watchlist-${item.id}`;
 
             return (
               <tr className="bg-neutral-950" key={item.id}>
                 <td className="px-4 py-4 align-top">
+                  <form
+                    action={actions.update}
+                    className="contents"
+                    id={updateFormId}
+                  >
+                    <input
+                      name="watchlist_item_id"
+                      type="hidden"
+                      value={item.id}
+                    />
+                    <input name="symbol" type="hidden" value={item.symbol} />
+                  </form>
                   <StockSymbolLink
                     className="font-semibold text-emerald-200 underline-offset-4 transition hover:text-emerald-100 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
                     symbol={item.symbol}
@@ -218,8 +361,17 @@ function WatchlistTable({
                     </div>
                   ) : null}
                 </td>
-                <td className="px-4 py-4 align-top text-neutral-300">
-                  {formatCurrency(toFiniteNumber(item.target_price), displayCurrency)}
+                <td className="px-4 py-4 align-top">
+                  <input
+                    aria-label={`Edit ${item.symbol} target price`}
+                    className="h-10 w-32 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
+                    defaultValue={item.target_price ?? ""}
+                    form={updateFormId}
+                    min="0.000001"
+                    name="target_price"
+                    step="0.000001"
+                    type="number"
+                  />
                 </td>
                 <td className="px-4 py-4 align-top text-neutral-300">
                   {formatTargetGap({
@@ -227,15 +379,44 @@ function WatchlistTable({
                     targetPrice: item.target_price,
                   })}
                 </td>
-                <td className="max-w-md px-4 py-4 align-top text-neutral-300">
-                  {item.notes ? (
-                    <p className="whitespace-pre-wrap leading-6">{item.notes}</p>
-                  ) : (
-                    <span className="text-neutral-500">No notes</span>
-                  )}
+                <td className="max-w-md px-4 py-4 align-top">
+                  <textarea
+                    aria-label={`Edit ${item.symbol} notes`}
+                    className="min-h-24 w-full min-w-80 rounded-md border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm leading-5 text-white outline-none transition focus:border-emerald-400"
+                    defaultValue={item.notes ?? ""}
+                    form={updateFormId}
+                    maxLength={2000}
+                    name="notes"
+                    placeholder="No notes"
+                    rows={4}
+                  />
                 </td>
                 <td className="px-4 py-4 align-top text-neutral-300">
                   {formatDate(item.created_at)}
+                </td>
+                <td className="px-4 py-4 align-top">
+                  <div className="flex gap-2">
+                    <button
+                      className="h-10 rounded-md border border-neutral-700 px-3 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:text-white"
+                      form={updateFormId}
+                      type="submit"
+                    >
+                      Save
+                    </button>
+                    <form action={actions.delete}>
+                      <input
+                        name="watchlist_item_id"
+                        type="hidden"
+                        value={item.id}
+                      />
+                      <button
+                        className="h-10 rounded-md border border-red-900 px-3 text-sm font-medium text-red-200 transition hover:border-red-700 hover:text-red-100"
+                        type="submit"
+                      >
+                        Delete
+                      </button>
+                    </form>
+                  </div>
                 </td>
               </tr>
             );
@@ -248,9 +429,12 @@ function WatchlistTable({
 
 export async function WatchlistPage({
   createSupabaseClient,
+  feedbackParams = {},
   listWatchlistItems = listDefaultPortfolioWatchlistItems,
   redirectToLogin,
+  watchlistActions = defaultWatchlistActions,
 }: WatchlistPageDependencies) {
+  const feedbackMessages = buildFeedbackMessages(feedbackParams);
   const supabase = await createSupabaseClient();
   const {
     data: { user },
@@ -336,6 +520,8 @@ export async function WatchlistPage({
           </div>
         </header>
 
+        <FeedbackSnackbars messages={feedbackMessages} />
+
         <div className="grid gap-4 py-8 md:grid-cols-3">
           <div className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
             <p className="text-sm text-neutral-400">Portfolio</p>
@@ -356,6 +542,21 @@ export async function WatchlistPage({
             </p>
           </div>
         </div>
+
+        <section className="border-t border-neutral-800 py-8">
+          <h2 className="text-lg font-semibold text-white">
+            Add watched stock
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            Add a wanted stock by symbol. Market data is fetched and cached when
+            available, with warnings shown when the latest price cannot be
+            refreshed.
+          </p>
+          <AddWatchlistItemForm
+            action={watchlistActions.add}
+            disabled={!portfolio}
+          />
+        </section>
 
         <section className="border-t border-neutral-800 py-8">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -381,6 +582,7 @@ export async function WatchlistPage({
 
           {items.length ? (
             <WatchlistTable
+              actions={watchlistActions}
               displayCurrency={displayCurrency}
               items={items}
               latestPricesBySymbol={latestPricesBySymbol}

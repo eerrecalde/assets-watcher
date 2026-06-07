@@ -1,6 +1,12 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("./actions", () => ({
+  addWatchlistItemAction: "#add-watchlist",
+  deleteWatchlistItemAction: "#delete-watchlist",
+  updateWatchlistItemAction: "#update-watchlist",
+}));
+
 import {
   WatchlistPage,
   type WatchlistPageDependencies,
@@ -75,8 +81,31 @@ describe("WatchlistPage", () => {
 
     expect(html).toContain("Watchlist");
     expect(html).toContain("Default Portfolio");
+    expect(html).toContain("Add watched stock");
+    expect(html).toContain('name="symbol"');
+    expect(html).toContain('name="target_price"');
+    expect(html).toContain('name="notes"');
+    expect(html).toContain("Optional context");
     expect(html).toContain("Watched stocks");
     expect(html).toContain("No watched stocks yet");
+  });
+
+  it("renders feedback messages from watchlist action redirects", async () => {
+    const html = await renderPage(
+      {
+        items: [],
+      },
+      {
+        feedbackParams: {
+          notice: "notice-1",
+          success: "Watchlist item added.",
+          warning: "Latest price could not be refreshed.",
+        },
+      },
+    );
+
+    expect(html).toContain("Watchlist item added.");
+    expect(html).toContain("Latest price could not be refreshed.");
   });
 
   it("renders watchlist rows with cached stock and latest price context", async () => {
@@ -119,9 +148,13 @@ describe("WatchlistPage", () => {
     expect(listWatchlistItems).toHaveBeenCalledWith(expect.anything(), user);
     expect(html).toContain("Apple Inc.");
     expect(html).toContain("$150.00");
-    expect(html).toContain("$180.00");
     expect(html).toContain("+16.67%");
+    expect(html).toContain('aria-label="Edit AAPL target price"');
+    expect(html).toContain('value="180"');
+    expect(html).toContain('aria-label="Edit AAPL notes"');
     expect(html).toContain("Wait for a better entry.");
+    expect(html).toContain("Save");
+    expect(html).toContain("Delete");
     expect(html).not.toContain("Tesla Inc.");
   });
 
@@ -164,6 +197,11 @@ function createDependencies(
     redirectToLogin: vi.fn((url: string): never => {
       throw new Error(`redirect:${url}`);
     }),
+    watchlistActions: {
+      add: "#add-watchlist",
+      delete: "#delete-watchlist",
+      update: "#update-watchlist",
+    },
   };
 }
 
