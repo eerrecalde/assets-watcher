@@ -256,6 +256,9 @@ Show:
 - Portfolio fit score
 - Rule-by-rule explanation
 
+For the V1 stock detail chart window decision, see
+`docs/decision-records/0001-stock-detail-price-chart-window.md`.
+
 ### 7.5 Rules / Settings Page
 
 Allow users to configure:

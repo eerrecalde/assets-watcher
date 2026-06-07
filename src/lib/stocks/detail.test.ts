@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createCachedFiftyTwoWeekRange,
+  createHistoricalPriceChartPoints,
   createLatestCachedPriceSummary,
   createStockProfileFields,
   getTrailingFiftyTwoWeekStartDate,
@@ -134,6 +135,47 @@ describe("createCachedFiftyTwoWeekRange", () => {
         },
       ]),
     ).toBeNull();
+  });
+});
+
+describe("createHistoricalPriceChartPoints", () => {
+  it("creates ascending close-price chart points from cached daily rows", () => {
+    expect(
+      createHistoricalPriceChartPoints([
+        {
+          price_date: "2026-06-05",
+          close: "202.75",
+        },
+        {
+          price_date: "2026-06-03",
+          close: "200",
+        },
+        {
+          price_date: "2026-06-04",
+          close: "not-a-number",
+        },
+      ]),
+    ).toEqual([
+      {
+        priceDate: "2026-06-03",
+        close: 200,
+      },
+      {
+        priceDate: "2026-06-05",
+        close: 202.75,
+      },
+    ]);
+  });
+
+  it("returns no points when cached rows do not have usable closes", () => {
+    expect(
+      createHistoricalPriceChartPoints([
+        {
+          price_date: "2026-06-05",
+          close: "not-a-number",
+        },
+      ]),
+    ).toEqual([]);
   });
 });
 
