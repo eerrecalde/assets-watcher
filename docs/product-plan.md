@@ -833,7 +833,7 @@ Avoid:
 
 ## 15. Milestones
 
-### Milestone 0 — Project Foundation
+### Milestone 1 — Project Foundation
 
 Goal: create the base app skeleton.
 
@@ -853,7 +853,7 @@ Done when:
 A user can sign up, log in, and see a protected empty dashboard.
 ```
 
-### Milestone 1 — Manual Portfolio Tracker
+### Milestone 2 — Manual Portfolio Tracker
 
 Goal: allow users to manually track holdings and cash.
 
@@ -872,7 +872,7 @@ Done when:
 A user can enter stocks manually and see basic portfolio totals.
 ```
 
-### Milestone 2 — Market Data Cache
+### Milestone 3 — Market Data Cache
 
 Goal: fetch and cache stock/company data.
 
@@ -894,7 +894,7 @@ Done when:
 A user can add a US stock symbol and the app can fetch/cache basic data.
 ```
 
-### Milestone 3 — Stock Detail Pages
+### Milestone 4 — Stock Detail Pages
 
 Goal: make stocks clickable and useful.
 
@@ -910,7 +910,7 @@ Includes:
 - Fundamentals section
 - Insufficient-data states
 
-### Milestone 4 — Watchlist
+### Milestone 5 — Watchlist
 
 Goal: track wanted stocks separately.
 
@@ -923,7 +923,7 @@ Includes:
 - Links to stock detail pages
 - Watchlist section on dashboard
 
-### Milestone 5 — Deterministic Graham Scoring
+### Milestone 6 — Deterministic Graham Scoring
 
 Goal: score stocks using explainable rules.
 
@@ -940,7 +940,7 @@ Includes:
 - Rule-by-rule explanation
 - Unit tests
 
-### Milestone 6 — Portfolio-Aware Scoring
+### Milestone 7 — Portfolio-Aware Scoring
 
 Goal: combine stock quality with portfolio context.
 
@@ -954,7 +954,7 @@ Includes:
 - Combined stock + portfolio label
 - Unit tests
 
-### Milestone 7 — User Rules
+### Milestone 8 — User Rules
 
 Goal: users can customise thresholds.
 
@@ -968,7 +968,7 @@ Includes:
 - Recalculate scores after rule changes
 - Validation
 
-### Milestone 8 — On-Demand AI Take
+### Milestone 9 — On-Demand AI Take
 
 Goal: generate a cautious educational portfolio explanation.
 
@@ -984,7 +984,7 @@ Includes:
 - Per-user AI rate limit
 - Failure handling
 
-### Milestone 9 — Review Queue and Alerts
+### Milestone 10 — Review Queue and Alerts
 
 Goal: tell the user what needs attention.
 
@@ -1001,7 +1001,7 @@ Includes:
 
 ## 16. Initial GitHub Issues
 
-### Milestone 0 — Project Foundation
+### Milestone 1 — Project Foundation
 
 ```txt
 #1 Set up Next.js app with TypeScript and Tailwind
@@ -1013,7 +1013,7 @@ Includes:
 #7 Add README setup instructions
 ```
 
-### Milestone 1 — Manual Portfolio Tracker
+### Milestone 2 — Manual Portfolio Tracker
 
 ```txt
 #8 Create default portfolio for new users
@@ -1024,7 +1024,7 @@ Includes:
 #13 Add portfolio calculation tests
 ```
 
-### Milestone 2 — Market Data Cache
+### Milestone 3 — Market Data Cache
 
 ```txt
 #14 Create market data provider interface
