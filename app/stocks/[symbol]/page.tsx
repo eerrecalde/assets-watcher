@@ -70,18 +70,30 @@ function formatNumber(value: number, maximumFractionDigits = 6) {
 }
 
 function formatDate(value: string) {
+  const date = new Date(value.includes("T") ? value : `${value}T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unavailable";
+  }
+
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeZone: "UTC",
-  }).format(new Date(value.includes("T") ? value : `${value}T00:00:00.000Z`));
+  }).format(date);
 }
 
 function formatDateTime(value: string) {
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Unavailable";
+  }
+
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "short",
     timeZone: "UTC",
-  }).format(new Date(value));
+  }).format(date);
 }
 
 function formatCurrency(value: number | null, currency: string) {
@@ -193,6 +205,26 @@ function buildLatestPriceMap(
   }
 
   return latestPrices;
+}
+
+function logStockDetailLoadError({
+  error,
+  scope,
+  symbol,
+}: {
+  error: string | null | undefined;
+  scope: string;
+  symbol: string;
+}) {
+  if (!error) {
+    return;
+  }
+
+  console.error("Stock detail data load failed.", {
+    error,
+    scope,
+    symbol,
+  });
 }
 
 function createPriceHistoryChart(points: HistoricalPriceChartPoint[]) {
@@ -1065,6 +1097,11 @@ export default async function StockDetailPage({ params }: PageProps) {
 
     stock = data;
     stockLoadError = error?.message;
+    logStockDetailLoadError({
+      error: stockLoadError,
+      scope: "stock profile",
+      symbol,
+    });
 
     if (stock) {
       const latestPriceResult = await supabase
@@ -1077,6 +1114,11 @@ export default async function StockDetailPage({ params }: PageProps) {
 
       latestPrice = latestPriceResult.data;
       latestPriceLoadError = latestPriceResult.error?.message;
+      logStockDetailLoadError({
+        error: latestPriceLoadError,
+        scope: "latest cached price",
+        symbol,
+      });
 
       if (latestPrice) {
         const contextResult = await supabase
@@ -1088,6 +1130,11 @@ export default async function StockDetailPage({ params }: PageProps) {
           .order("price_date", { ascending: true });
 
         cachedRangeLoadError = contextResult.error?.message;
+        logStockDetailLoadError({
+          error: cachedRangeLoadError,
+          scope: "cached historical prices",
+          symbol,
+        });
         const cachedContextRows = contextResult.data ?? [];
         const trailingFiftyTwoWeekStartDate =
           getTrailingFiftyTwoWeekStartDate(latestPrice.price_date);
@@ -1116,6 +1163,11 @@ export default async function StockDetailPage({ params }: PageProps) {
         latestFundamentalsResult.data ?? [],
       );
       latestFundamentalsLoadError = latestFundamentalsResult.error?.message;
+      logStockDetailLoadError({
+        error: latestFundamentalsLoadError,
+        scope: "cached fundamentals",
+        symbol,
+      });
     }
   }
 
@@ -1147,6 +1199,16 @@ export default async function StockDetailPage({ params }: PageProps) {
     : { data: [] as HoldingRow[], error: null };
 
   const holdings = holdingsResult.data ?? [];
+  logStockDetailLoadError({
+    error: cashResult.error?.message,
+    scope: "portfolio cash",
+    symbol,
+  });
+  logStockDetailLoadError({
+    error: holdingsResult.error?.message,
+    scope: "holdings",
+    symbol,
+  });
   const symbols = holdings.map((holding) => holding.symbol);
   const pricesResult = symbols.length
     ? await supabase
@@ -1159,6 +1221,11 @@ export default async function StockDetailPage({ params }: PageProps) {
         error: null,
       };
   const latestPricesBySymbol = buildLatestPriceMap(pricesResult.data ?? []);
+  logStockDetailLoadError({
+    error: pricesResult.error?.message,
+    scope: "holding latest prices",
+    symbol,
+  });
   const enrichedHoldings = holdings.map((holding) => {
     const latestPrice = latestPricesBySymbol.get(holding.symbol);
 

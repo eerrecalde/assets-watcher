@@ -60,4 +60,27 @@ describe("buildUserHoldingSummary", () => {
       unrealizedGain: null,
     });
   });
+
+  it("does not calculate dependent values from an unusable latest price", () => {
+    expect(
+      buildUserHoldingSummary({
+        holding: {
+          averageCost: "100",
+          currency: "USD",
+          latestClose: "not-a-number",
+          latestPriceDate: "2026-06-05",
+          quantity: "10",
+        },
+        totalPortfolioValue: "1000",
+      }),
+    ).toMatchObject({
+      hasSufficientPriceData: false,
+      latestClose: null,
+      latestPriceDate: "2026-06-05",
+      marketValue: null,
+      portfolioPercentage: null,
+      status: "owned",
+      unrealizedGain: null,
+    });
+  });
 });
