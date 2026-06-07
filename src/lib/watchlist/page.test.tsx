@@ -148,7 +148,9 @@ describe("WatchlistPage", () => {
     expect(listWatchlistItems).toHaveBeenCalledWith(expect.anything(), user);
     expect(html).toContain("Apple Inc.");
     expect(html).toContain("$150.00");
-    expect(html).toContain("+16.67%");
+    expect(html).toContain("Graham label");
+    expect(html).toContain("Margin of safety");
+    expect(html).toContain("Pending Milestone 6");
     expect(html).toContain('aria-label="Edit AAPL target price"');
     expect(html).toContain('value="180"');
     expect(html).toContain('aria-label="Edit AAPL notes"');
@@ -156,6 +158,28 @@ describe("WatchlistPage", () => {
     expect(html).toContain("Save");
     expect(html).toContain("Delete");
     expect(html).not.toContain("Tesla Inc.");
+  });
+
+  it("renders explicit unavailable states for partial cached watchlist data", async () => {
+    const partialItem: DefaultPortfolioWatchlistItem = {
+      ...watchlistItem,
+      id: "watchlist-2",
+      notes: null,
+      symbol: "MSFT",
+      target_price: null,
+    };
+
+    const html = await renderPage({
+      items: [partialItem],
+      prices: [],
+      stocks: [],
+    });
+
+    expect(html).toContain("Company unavailable");
+    expect(html).toContain("Not cached");
+    expect(html).toContain("Pending Milestone 6");
+    expect(html).toContain('aria-label="Edit MSFT target price"');
+    expect(html).toContain('placeholder="No notes"');
   });
 
   it("renders a load warning when watchlist data cannot be loaded", async () => {

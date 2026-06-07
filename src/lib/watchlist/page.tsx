@@ -102,19 +102,6 @@ function buildFeedbackMessages(
   return messages;
 }
 
-function formatDate(value: string) {
-  const date = new Date(value.includes("T") ? value : `${value}T00:00:00.000Z`);
-
-  if (Number.isNaN(date.getTime())) {
-    return "Unavailable";
-  }
-
-  return new Intl.DateTimeFormat("en-US", {
-    dateStyle: "medium",
-    timeZone: "UTC",
-  }).format(date);
-}
-
 function formatCurrency(value: number | null, currency: string) {
   if (value === null) {
     return "Not cached";
@@ -153,34 +140,6 @@ function toFiniteNumber(value: string | null | undefined) {
   const numericValue = Number(value);
 
   return Number.isFinite(numericValue) ? numericValue : null;
-}
-
-function formatTargetGap({
-  latestClose,
-  targetPrice,
-}: {
-  latestClose: string | null | undefined;
-  targetPrice: string | null;
-}) {
-  const latestCloseValue = toFiniteNumber(latestClose);
-  const targetPriceValue = toFiniteNumber(targetPrice);
-
-  if (latestCloseValue === null || targetPriceValue === null) {
-    return "Not cached";
-  }
-
-  if (targetPriceValue === 0) {
-    return "Unavailable";
-  }
-
-  const percentageGap = ((targetPriceValue - latestCloseValue) / targetPriceValue) * 100;
-  const formatted = new Intl.NumberFormat("en-US", {
-    maximumFractionDigits: 2,
-    minimumFractionDigits: 0,
-    signDisplay: "exceptZero",
-  }).format(percentageGap);
-
-  return `${formatted}%`;
 }
 
 function buildLatestPriceMap(
@@ -305,16 +264,16 @@ function WatchlistTable({
 }) {
   return (
     <div className="mt-5 overflow-x-auto rounded-lg border border-neutral-800">
-      <table className="min-w-[86rem] w-full border-collapse text-left text-sm">
+      <table className="min-w-[88rem] w-full border-collapse text-left text-sm">
         <thead className="bg-neutral-900 text-xs uppercase tracking-[0.14em] text-neutral-400">
           <tr>
             <th className="px-4 py-3 font-medium">Symbol</th>
             <th className="px-4 py-3 font-medium">Company</th>
             <th className="px-4 py-3 font-medium">Latest price</th>
             <th className="px-4 py-3 font-medium">Target price</th>
-            <th className="px-4 py-3 font-medium">Target gap</th>
+            <th className="px-4 py-3 font-medium">Graham label</th>
+            <th className="px-4 py-3 font-medium">Margin of safety</th>
             <th className="px-4 py-3 font-medium">Notes</th>
-            <th className="px-4 py-3 font-medium">Added</th>
             <th className="px-4 py-3 font-medium">Actions</th>
           </tr>
         </thead>
@@ -346,7 +305,13 @@ function WatchlistTable({
                   />
                 </td>
                 <td className="px-4 py-4 align-top text-neutral-300">
-                  {stock?.name ?? item.symbol}
+                  {stock?.name ? (
+                    stock.name
+                  ) : (
+                    <span className="text-neutral-500">
+                      Company unavailable
+                    </span>
+                  )}
                 </td>
                 <td className="px-4 py-4 align-top text-neutral-300">
                   <div>
@@ -374,10 +339,14 @@ function WatchlistTable({
                   />
                 </td>
                 <td className="px-4 py-4 align-top text-neutral-300">
-                  {formatTargetGap({
-                    latestClose: latestPrice?.close,
-                    targetPrice: item.target_price,
-                  })}
+                  <span className="text-neutral-500">
+                    Pending Milestone 6
+                  </span>
+                </td>
+                <td className="px-4 py-4 align-top text-neutral-300">
+                  <span className="text-neutral-500">
+                    Pending Milestone 6
+                  </span>
                 </td>
                 <td className="max-w-md px-4 py-4 align-top">
                   <textarea
@@ -390,9 +359,6 @@ function WatchlistTable({
                     placeholder="No notes"
                     rows={4}
                   />
-                </td>
-                <td className="px-4 py-4 align-top text-neutral-300">
-                  {formatDate(item.created_at)}
                 </td>
                 <td className="px-4 py-4 align-top">
                   <div className="flex gap-2">
