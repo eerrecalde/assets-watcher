@@ -128,7 +128,7 @@ The initial authentication flow uses Supabase email/password auth:
 - `/login` signs an existing user in.
 - `/dashboard` is protected, redirects anonymous users to `/login`, and shows a read-only holdings table for the user's default portfolio.
 - `/holdings` is protected and lets signed-in users edit their default portfolio cash balance and create, read, update, and delete holdings.
-- `/stocks/[symbol]` is protected and shows a normalized stock detail route for symbols such as `/stocks/AAPL`, including the signed-in user's holding summary when they own the cached stock.
+- `/stocks/[symbol]` is protected and shows a normalized stock detail route for symbols such as `/stocks/AAPL`, including the signed-in user's holding summary when they own the cached stock. Stock detail pages currently assume the prototype's US-listed stock scope and render only locally cached market-data snapshots; they do not fetch live provider data during page render.
 - The dashboard logout action signs the current user out and returns them to `/login`.
 - `/auth/callback` exchanges Supabase email-confirmation codes for a session.
 
