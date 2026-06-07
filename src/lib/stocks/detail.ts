@@ -53,8 +53,24 @@ export type StockProfileField = {
 export type LatestCachedPriceSummary = {
   cachedAt: string;
   close: number;
+  freshness: StockDetailPriceFreshness;
   priceDate: string;
   volume: number | null;
+};
+
+export type StockDetailPriceFreshnessStatus =
+  | "fresh"
+  | "stale"
+  | "unavailable";
+
+export type StockDetailPriceFreshness = {
+  ageDays: number | null;
+  asOfDate: string | null;
+  currentDate: string;
+  reason: string;
+  staleAfterDate: string | null;
+  status: StockDetailPriceFreshnessStatus;
+  windowDays: number;
 };
 
 export type CachedFiftyTwoWeekRange = {
@@ -129,6 +145,8 @@ export type StockFundamentalsSummary = {
   valuationMetrics: StockFundamentalMetric[];
 };
 
+export const STOCK_DETAIL_PRICE_FRESHNESS_WINDOW_DAYS = 3;
+
 export function createStockProfileFields(
   stock: StockProfileInput,
 ): StockProfileField[] {
@@ -146,6 +164,7 @@ export function createStockProfileFields(
 
 export function createLatestCachedPriceSummary(
   latestPrice: StockPriceInput | null,
+  currentDate = new Date(),
 ): LatestCachedPriceSummary | null {
   const close = toFiniteNumber(latestPrice?.close);
 
@@ -156,8 +175,64 @@ export function createLatestCachedPriceSummary(
   return {
     cachedAt: latestPrice.created_at,
     close,
+    freshness: classifyStockDetailPriceFreshness(
+      latestPrice.price_date,
+      currentDate,
+    ),
     priceDate: latestPrice.price_date,
     volume: latestPrice.volume,
+  };
+}
+
+export function classifyStockDetailPriceFreshness(
+  priceDate: string | null | undefined,
+  currentDate = new Date(),
+): StockDetailPriceFreshness {
+  const currentDateOnly = toUtcDateOnly(currentDate);
+
+  if (!currentDateOnly) {
+    return {
+      ageDays: null,
+      asOfDate: priceDate ?? null,
+      currentDate: "Unavailable",
+      reason: "Current date is unavailable, so cache freshness cannot be calculated.",
+      staleAfterDate: null,
+      status: "unavailable",
+      windowDays: STOCK_DETAIL_PRICE_FRESHNESS_WINDOW_DAYS,
+    };
+  }
+
+  const validPriceDate = parseDateOnly(priceDate);
+
+  if (!validPriceDate || !priceDate) {
+    return {
+      ageDays: null,
+      asOfDate: null,
+      currentDate: currentDateOnly,
+      reason: "No usable latest cached close date is available.",
+      staleAfterDate: null,
+      status: "unavailable",
+      windowDays: STOCK_DETAIL_PRICE_FRESHNESS_WINDOW_DAYS,
+    };
+  }
+
+  const ageDays = differenceInUtcDays(currentDateOnly, priceDate);
+  const staleAfterDate = addUtcDays(
+    priceDate,
+    STOCK_DETAIL_PRICE_FRESHNESS_WINDOW_DAYS,
+  );
+  const isFresh = ageDays <= STOCK_DETAIL_PRICE_FRESHNESS_WINDOW_DAYS;
+
+  return {
+    ageDays,
+    asOfDate: priceDate,
+    currentDate: currentDateOnly,
+    reason: isFresh
+      ? `Latest cached close is within ${STOCK_DETAIL_PRICE_FRESHNESS_WINDOW_DAYS} calendar days.`
+      : `Latest cached close is older than ${STOCK_DETAIL_PRICE_FRESHNESS_WINDOW_DAYS} calendar days.`,
+    staleAfterDate,
+    status: isFresh ? "fresh" : "stale",
+    windowDays: STOCK_DETAIL_PRICE_FRESHNESS_WINDOW_DAYS,
   };
 }
 
@@ -343,6 +418,43 @@ export function getTrailingOneYearStartDate(priceDate: string) {
   latestDate.setUTCFullYear(latestDate.getUTCFullYear() - 1);
 
   return latestDate.toISOString().slice(0, 10);
+}
+
+function addUtcDays(priceDate: string, days: number) {
+  const date = new Date(`${priceDate}T00:00:00.000Z`);
+
+  date.setUTCDate(date.getUTCDate() + days);
+
+  return date.toISOString().slice(0, 10);
+}
+
+function differenceInUtcDays(laterDate: string, earlierDate: string) {
+  const laterTime = Date.parse(`${laterDate}T00:00:00.000Z`);
+  const earlierTime = Date.parse(`${earlierDate}T00:00:00.000Z`);
+
+  return Math.floor((laterTime - earlierTime) / 86_400_000);
+}
+
+function parseDateOnly(value: string | null | undefined) {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return null;
+  }
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
+    return null;
+  }
+
+  return date;
+}
+
+function toUtcDateOnly(value: Date) {
+  if (Number.isNaN(value.getTime())) {
+    return null;
+  }
+
+  return value.toISOString().slice(0, 10);
 }
 
 function createProfileField(

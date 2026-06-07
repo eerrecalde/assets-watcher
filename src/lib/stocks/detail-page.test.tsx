@@ -1,5 +1,5 @@
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   StockDetailPage,
@@ -104,6 +104,15 @@ const holding: HoldingRow = {
 };
 
 describe("StockDetailPage", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-06-07T10:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it("redirects unauthenticated users to login with the normalized stock path", async () => {
     const redirectToLogin = vi.fn((url: string): never => {
       throw new Error(`redirect:${url}`);
@@ -163,6 +172,8 @@ describe("StockDetailPage", () => {
 
     expect(html).toContain("Apple Inc.");
     expect(html).toContain("Latest cached price");
+    expect(html).toContain("Fresh");
+    expect(html).toContain("Fresh as of latest cached close Jun 5, 2026.");
     expect(html).toContain("$202.75");
     expect(html).toContain("Cached daily close price chart from 2026-06-03 to 2026-06-05");
     expect(html).toContain("Key fundamentals");
@@ -213,6 +224,7 @@ describe("StockDetailPage", () => {
     });
 
     expect(html).toContain("Insufficient cached price data");
+    expect(html).toContain("No usable latest cached close date is available.");
     expect(html).toContain("No latest cached close price is available for this stock.");
     expect(html).toContain("Insufficient cached historical prices");
     expect(html).toContain(
@@ -223,6 +235,36 @@ describe("StockDetailPage", () => {
       "Market value, unrealised gain/loss, and portfolio percentage are not calculated",
     );
     expect(html).toContain("Not cached");
+  });
+
+  it("marks stale price-derived stock detail context as stale and as-of", async () => {
+    vi.setSystemTime(new Date("2026-06-10T10:00:00.000Z"));
+
+    const html = await renderPage({
+      historicalPrices: [
+        {
+          ...latestPrice,
+          close: "180",
+          high: "181",
+          low: "179",
+          price_date: "2026-05-29",
+        },
+        {
+          ...latestPrice,
+          close: "190",
+          high: "192",
+          low: "188",
+          price_date: "2026-06-03",
+        },
+        latestPrice,
+      ],
+      latestPrice,
+      stock,
+    });
+
+    expect(html).toContain("Stale");
+    expect(html).toContain("Stale as of latest cached close Jun 5, 2026.");
+    expect(html).toContain("Stale as-of metric using latest cached close Jun 5, 2026.");
   });
 });
 
