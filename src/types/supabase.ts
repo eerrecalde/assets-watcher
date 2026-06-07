@@ -281,6 +281,61 @@ export type Database = {
           },
         ];
       };
+      watchlist_items: {
+        Row: {
+          id: string;
+          user_id: string;
+          portfolio_id: string;
+          symbol: string;
+          target_price: string | null;
+          notes: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          portfolio_id: string;
+          symbol: string;
+          target_price?: string | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          portfolio_id?: string;
+          symbol?: string;
+          target_price?: string | null;
+          notes?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "watchlist_items_portfolio_owner_fk";
+            columns: ["portfolio_id", "user_id"];
+            isOneToOne: false;
+            referencedRelation: "portfolios";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "watchlist_items_symbol_fkey";
+            columns: ["symbol"];
+            isOneToOne: false;
+            referencedRelation: "stocks";
+            referencedColumns: ["symbol"];
+          },
+          {
+            foreignKeyName: "watchlist_items_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       users: {
         Row: {
           created_at: string;

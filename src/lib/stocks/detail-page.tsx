@@ -2,6 +2,11 @@ import Link from "next/link";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  FeedbackSnackbars,
+  type FeedbackSnackbarMessage,
+} from "../../components/feedback-snackbars";
+import {
+  classifyStockDetailPriceFreshness,
   createCachedFiftyTwoWeekRange,
   createCachedPriceMovementSummary,
   createHistoricalPriceChartPoints,
@@ -17,6 +22,7 @@ import {
   type CachedPriceMovementSummary,
   type HistoricalPriceChartPoint,
   type LatestCachedPriceSummary,
+  type StockDetailPriceFreshness,
   type StockPriceInput,
   type StockFundamentalMetric,
   type StockFundamentalInput,
@@ -43,7 +49,12 @@ type HoldingRow = Database["public"]["Tables"]["holdings"]["Row"];
 type PortfolioCashRow = Database["public"]["Tables"]["portfolio_cash"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type PortfolioRow = Database["public"]["Tables"]["portfolios"]["Row"];
+type WatchlistItemRow =
+  Database["public"]["Tables"]["watchlist_items"]["Row"];
 type AppSupabaseClient = SupabaseClient<Database>;
+type RefreshStockDetailMarketDataAction = (
+  formData: FormData,
+) => Promise<void> | void;
 
 type AuthenticatedUser = {
   email?: string | null;
@@ -54,6 +65,7 @@ export type StockDetailPageProps = {
   params: Promise<{
     symbol: string;
   }>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 export type StockDetailPageDependencies = {
@@ -72,6 +84,7 @@ export type StockDetailPageDependencies = {
       }
   >;
   redirectToLogin: (url: string) => never;
+  refreshMarketDataAction?: RefreshStockDetailMarketDataAction;
 };
 
 const chartDimensions = {
@@ -171,6 +184,106 @@ function formatFundamentalPeriodType(
     quarterly: "Quarterly",
     ttm: "TTM",
   }[periodType];
+}
+
+function getMessageValue(
+  params: Record<string, string | string[] | undefined>,
+  key: string,
+) {
+  const value = params[key];
+
+  return typeof value === "string" ? value : undefined;
+}
+
+function buildFeedbackMessages(
+  params: Record<string, string | string[] | undefined>,
+) {
+  const messages: FeedbackSnackbarMessage[] = [];
+  const noticeId = getMessageValue(params, "notice") ?? "notice";
+  const successMessage = getMessageValue(params, "success");
+  const warningMessage = getMessageValue(params, "warning");
+  const errorMessage = getMessageValue(params, "error");
+
+  if (successMessage) {
+    messages.push({
+      id: `${noticeId}:success`,
+      message: successMessage,
+      tone: "success",
+    });
+  }
+
+  if (warningMessage) {
+    messages.push({
+      id: `${noticeId}:warning`,
+      message: warningMessage,
+      tone: "warning",
+    });
+  }
+
+  if (errorMessage) {
+    messages.push({
+      id: `${noticeId}:error`,
+      message: errorMessage,
+      tone: "error",
+    });
+  }
+
+  return messages;
+}
+
+function formatFreshnessStatus(status: StockDetailPriceFreshness["status"]) {
+  return {
+    fresh: "Fresh",
+    stale: "Stale",
+    unavailable: "Unavailable",
+  }[status];
+}
+
+function formatFreshnessDescription(freshness: StockDetailPriceFreshness) {
+  if (!freshness.asOfDate) {
+    return freshness.reason;
+  }
+
+  const status = formatFreshnessStatus(freshness.status);
+  const staleAfter = freshness.staleAfterDate
+    ? ` Stale after ${formatDate(freshness.staleAfterDate)}.`
+    : "";
+
+  return `${status} as of latest cached close ${formatDate(
+    freshness.asOfDate,
+  )}.${staleAfter}`;
+}
+
+function FreshnessBadge({
+  freshness,
+}: {
+  freshness: StockDetailPriceFreshness;
+}) {
+  const className = {
+    fresh: "border-emerald-800 bg-emerald-950/70 text-emerald-200",
+    stale: "border-amber-800 bg-amber-950/70 text-amber-100",
+    unavailable: "border-neutral-700 bg-neutral-950 text-neutral-300",
+  }[freshness.status];
+
+  return (
+    <span
+      className={`inline-flex h-7 items-center rounded-md border px-2.5 text-xs font-semibold ${className}`}
+    >
+      {formatFreshnessStatus(freshness.status)}
+    </span>
+  );
+}
+
+function PriceFreshnessNote({
+  freshness,
+}: {
+  freshness: StockDetailPriceFreshness;
+}) {
+  return (
+    <p className="mt-3 text-sm leading-6 text-neutral-500">
+      {formatFreshnessDescription(freshness)}
+    </p>
+  );
 }
 
 function formatFundamentalMetricValue({
@@ -518,13 +631,24 @@ function CompanyProfileCard({ stock }: { stock: StockRow }) {
 
 function LatestPriceCard({
   currency,
+  freshness,
+  isTrackedSymbol,
   loadError,
   latestPrice,
+  refreshAction,
+  symbol,
 }: {
   currency: string;
+  freshness: StockDetailPriceFreshness;
+  isTrackedSymbol: boolean;
   latestPrice: LatestCachedPriceSummary | null;
   loadError?: string;
+  refreshAction?: RefreshStockDetailMarketDataAction;
+  symbol: string;
 }) {
+  const showRefreshAction =
+    Boolean(refreshAction) && isTrackedSymbol && freshness.status !== "fresh";
+
   return (
     <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
@@ -536,12 +660,27 @@ function LatestPriceCard({
             Stored market data snapshot. Pricing is cached and may be stale; it
             is not real-time.
           </p>
+          <PriceFreshnessNote freshness={freshness} />
         </div>
-        {latestPrice ? (
-          <p className="text-sm text-neutral-500">
-            Price date {formatDate(latestPrice.priceDate)}
-          </p>
-        ) : null}
+        <div className="flex flex-col items-start gap-3 sm:items-end">
+          <FreshnessBadge freshness={freshness} />
+          {latestPrice ? (
+            <p className="text-sm text-neutral-500">
+              Price date {formatDate(latestPrice.priceDate)}
+            </p>
+          ) : null}
+          {showRefreshAction && refreshAction ? (
+            <form action={refreshAction}>
+              <input name="symbol" type="hidden" value={symbol} />
+              <button
+                className="inline-flex h-10 items-center justify-center rounded-md border border-emerald-900 px-4 text-sm font-medium text-emerald-200 transition hover:border-emerald-700 hover:text-emerald-100"
+                type="submit"
+              >
+                Refresh cached data
+              </button>
+            </form>
+          ) : null}
+        </div>
       </div>
 
       {loadError ? (
@@ -596,10 +735,12 @@ function LatestPriceCard({
 
 function PriceHistoryChartCard({
   currency,
+  freshness,
   loadError,
   points,
 }: {
   currency: string;
+  freshness: StockDetailPriceFreshness;
   loadError?: string;
   points: HistoricalPriceChartPoint[];
 }) {
@@ -616,12 +757,16 @@ function PriceHistoryChartCard({
             Daily close prices from the local cache. The chart does not request
             live market data.
           </p>
+          <PriceFreshnessNote freshness={freshness} />
         </div>
-        {chart ? (
-          <p className="text-sm text-neutral-500">
-            {formatDate(chart.startDate)} to {formatDate(chart.endDate)}
-          </p>
-        ) : null}
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <FreshnessBadge freshness={freshness} />
+          {chart ? (
+            <p className="text-sm text-neutral-500">
+              {formatDate(chart.startDate)} to {formatDate(chart.endDate)}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {loadError ? (
@@ -745,23 +890,29 @@ function PriceHistoryChartCard({
 
 function CachedRangeCard({
   currency,
+  freshness,
   loadError,
   range,
 }: {
   currency: string;
+  freshness: StockDetailPriceFreshness;
   loadError?: string;
   range: CachedFiftyTwoWeekRange | null;
 }) {
   return (
     <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
-      <div>
-        <h2 className="text-lg font-semibold text-white">
-          Cached price range
-        </h2>
-        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
-          Calculated only from cached daily price rows. A 52-week high or low
-          is shown only when the cache covers the full trailing window.
-        </p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">
+            Cached price range
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            Calculated only from cached daily price rows. A 52-week high or low
+            is shown only when the cache covers the full trailing window.
+          </p>
+          <PriceFreshnessNote freshness={freshness} />
+        </div>
+        <FreshnessBadge freshness={freshness} />
       </div>
 
       {loadError ? (
@@ -816,10 +967,12 @@ function CachedRangeCard({
 
 function PriceMovementCard({
   currency,
+  freshness,
   loadError,
   summary,
 }: {
   currency: string;
+  freshness: StockDetailPriceFreshness;
   loadError?: string;
   summary: CachedPriceMovementSummary | null;
 }) {
@@ -834,12 +987,16 @@ function PriceMovementCard({
             Cached historical movement and averages for context only. These
             metrics are not financial advice or a trading recommendation.
           </p>
+          <PriceFreshnessNote freshness={freshness} />
         </div>
-        {summary?.latestDate ? (
-          <p className="text-sm text-neutral-500">
-            Latest close {formatDate(summary.latestDate)}
-          </p>
-        ) : null}
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <FreshnessBadge freshness={freshness} />
+          {summary?.latestDate ? (
+            <p className="text-sm text-neutral-500">
+              Latest close {formatDate(summary.latestDate)}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {loadError ? (
@@ -852,7 +1009,11 @@ function PriceMovementCard({
         <>
           <dl className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {summary.movements.map((movement) => (
-              <MovementMetricCard key={movement.id} metric={movement} />
+              <MovementMetricCard
+                freshness={freshness}
+                key={movement.id}
+                metric={movement}
+              />
             ))}
           </dl>
 
@@ -860,6 +1021,7 @@ function PriceMovementCard({
             {summary.movingAverages.map((average) => (
               <MovingAverageMetricCard
                 currency={currency}
+                freshness={freshness}
                 key={average.id}
                 metric={average}
               />
@@ -1012,7 +1174,13 @@ function FundamentalMetricCard({
   );
 }
 
-function MovementMetricCard({ metric }: { metric: CachedPriceMovementMetric }) {
+function MovementMetricCard({
+  freshness,
+  metric,
+}: {
+  freshness: StockDetailPriceFreshness;
+  metric: CachedPriceMovementMetric;
+}) {
   const tone =
     metric.percentChange === null
       ? "text-neutral-500"
@@ -1033,8 +1201,16 @@ function MovementMetricCard({ metric }: { metric: CachedPriceMovementMetric }) {
       <dd className="mt-1 text-xs leading-5 text-neutral-500">
         {metric.unavailableReason
           ? metric.unavailableReason
-          : metric.baselineDate
-            ? `Compared with cached close on ${formatDate(metric.baselineDate)}.`
+          : metric.baselineDate && freshness.asOfDate
+            ? `${formatFreshnessStatus(
+                freshness.status,
+              )} as-of metric using latest cached close ${formatDate(
+                freshness.asOfDate,
+              )}. Compared with cached close on ${formatDate(
+                metric.baselineDate,
+              )}.`
+            : metric.baselineDate
+              ? `Compared with cached close on ${formatDate(metric.baselineDate)}.`
             : "Unavailable from cached history."}
       </dd>
     </div>
@@ -1043,9 +1219,11 @@ function MovementMetricCard({ metric }: { metric: CachedPriceMovementMetric }) {
 
 function MovingAverageMetricCard({
   currency,
+  freshness,
   metric,
 }: {
   currency: string;
+  freshness: StockDetailPriceFreshness;
   metric: CachedMovingAverageMetric;
 }) {
   return (
@@ -1070,7 +1248,11 @@ function MovingAverageMetricCard({
               metric.rowCount,
             )}.`
           : metric.startDate && metric.endDate
-            ? `Average of ${formatInteger(metric.rowCount)} cached closes from ${formatDate(
+            ? `${formatFreshnessStatus(
+                freshness.status,
+              )} as-of average using latest cached close ${
+                freshness.asOfDate ? formatDate(freshness.asOfDate) : "Unavailable"
+              }. Average of ${formatInteger(metric.rowCount)} cached closes from ${formatDate(
                 metric.startDate,
               )} to ${formatDate(metric.endDate)}.`
             : "Unavailable from cached history."}
@@ -1084,9 +1266,14 @@ export async function StockDetailPage({
   ensureDefaultPortfolio,
   params,
   redirectToLogin,
+  refreshMarketDataAction,
+  searchParams,
 }: StockDetailPageProps & StockDetailPageDependencies) {
   const { symbol: routeSymbol } = await params;
+  const feedbackParams = searchParams ? await searchParams : {};
+  const feedbackMessages = buildFeedbackMessages(feedbackParams);
   const symbol = normalizeStockSymbol(routeSymbol);
+  const renderDate = new Date();
   const supabase = await createSupabaseClient();
   const {
     data: { user },
@@ -1203,7 +1390,13 @@ export async function StockDetailPage({
     }
   }
 
-  const latestPriceSummary = createLatestCachedPriceSummary(latestPrice);
+  const latestPriceSummary = createLatestCachedPriceSummary(
+    latestPrice,
+    renderDate,
+  );
+  const priceFreshness =
+    latestPriceSummary?.freshness ??
+    classifyStockDetailPriceFreshness(latestPrice?.price_date, renderDate);
   const fundamentalsSummary =
     createStockFundamentalsSummary(latestFundamentals);
   const cashResult = portfolio
@@ -1278,6 +1471,25 @@ export async function StockDetailPage({
     isValidSymbol && portfolio
       ? holdings.find((holding) => holding.symbol === symbol) ?? null
       : null;
+  const selectedWatchlistResult =
+    isValidSymbol && portfolio
+      ? await supabase
+          .from("watchlist_items")
+          .select("id")
+          .eq("portfolio_id", portfolio.id)
+          .eq("symbol", symbol)
+          .maybeSingle()
+      : {
+          data: null as Pick<WatchlistItemRow, "id"> | null,
+          error: null,
+        };
+  logStockDetailLoadError({
+    error: selectedWatchlistResult.error?.message,
+    scope: "watchlist tracking",
+    symbol,
+  });
+  const isTrackedSymbol =
+    Boolean(selectedHolding) || Boolean(selectedWatchlistResult.data);
   const selectedLatestPrice = latestPricesBySymbol.get(symbol);
   const holdingSummary = portfolio
     ? buildUserHoldingSummary({
@@ -1301,6 +1513,7 @@ export async function StockDetailPage({
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
+      <FeedbackSnackbars messages={feedbackMessages} />
       <section className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 sm:px-8">
         <header className="flex flex-col gap-5 border-b border-neutral-800 pb-8 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -1338,16 +1551,22 @@ export async function StockDetailPage({
               <CompanyProfileCard stock={stock} />
               <LatestPriceCard
                 currency={stock.currency}
+                freshness={priceFreshness}
+                isTrackedSymbol={isTrackedSymbol}
                 latestPrice={latestPriceSummary}
                 loadError={latestPriceLoadError}
+                refreshAction={refreshMarketDataAction}
+                symbol={symbol}
               />
               <PriceHistoryChartCard
                 currency={stock.currency}
+                freshness={priceFreshness}
                 loadError={cachedRangeLoadError}
                 points={historicalPriceChartPoints}
               />
               <PriceMovementCard
                 currency={stock.currency}
+                freshness={priceFreshness}
                 loadError={cachedRangeLoadError}
                 summary={priceMovementSummary}
               />
@@ -1358,6 +1577,7 @@ export async function StockDetailPage({
               />
               <CachedRangeCard
                 currency={stock.currency}
+                freshness={priceFreshness}
                 loadError={cachedRangeLoadError}
                 range={cachedRange}
               />

@@ -6,6 +6,7 @@ import {
 } from "@/lib/stocks/detail-page";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import { createClient } from "@/lib/supabase/server";
+import { refreshStockDetailMarketDataAction } from "@/lib/stocks/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -15,5 +16,6 @@ export default function Page(props: StockDetailPageProps) {
     createSupabaseClient: createClient,
     ensureDefaultPortfolio: ensureDefaultPortfolioForUser,
     redirectToLogin: redirect,
+    refreshMarketDataAction: refreshStockDetailMarketDataAction,
   });
 }

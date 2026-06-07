@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  classifyStockDetailPriceFreshness,
   createCachedFiftyTwoWeekRange,
   createCachedPriceMovementSummary,
   createHistoricalPriceChartPoints,
@@ -115,9 +116,23 @@ describe("createStockProfileFields", () => {
 
 describe("createLatestCachedPriceSummary", () => {
   it("returns the latest cached price summary when close data exists", () => {
-    expect(createLatestCachedPriceSummary(latestPrice)).toEqual({
+    expect(
+      createLatestCachedPriceSummary(
+        latestPrice,
+        new Date("2026-06-07T10:00:00.000Z"),
+      ),
+    ).toEqual({
       cachedAt: "2026-06-05T12:15:00.000Z",
       close: 202.75,
+      freshness: {
+        ageDays: 2,
+        asOfDate: "2026-06-05",
+        currentDate: "2026-06-07",
+        reason: "Latest cached close is within 3 calendar days.",
+        staleAfterDate: "2026-06-08",
+        status: "fresh",
+        windowDays: 3,
+      },
       priceDate: "2026-06-05",
       volume: 45678900,
     });
@@ -143,6 +158,66 @@ describe("createLatestCachedPriceSummary", () => {
       close: 0,
       priceDate: "2026-06-05",
     });
+  });
+});
+
+describe("classifyStockDetailPriceFreshness", () => {
+  it("keeps a Friday cached close fresh through the weekend freshness window", () => {
+    expect(
+      classifyStockDetailPriceFreshness(
+        "2026-06-05",
+        new Date("2026-06-08T09:00:00.000Z"),
+      ),
+    ).toEqual({
+      ageDays: 3,
+      asOfDate: "2026-06-05",
+      currentDate: "2026-06-08",
+      reason: "Latest cached close is within 3 calendar days.",
+      staleAfterDate: "2026-06-08",
+      status: "fresh",
+      windowDays: 3,
+    });
+  });
+
+  it("marks latest cached close data stale after the freshness window", () => {
+    expect(
+      classifyStockDetailPriceFreshness(
+        "2026-06-05",
+        new Date("2026-06-09T09:00:00.000Z"),
+      ),
+    ).toEqual({
+      ageDays: 4,
+      asOfDate: "2026-06-05",
+      currentDate: "2026-06-09",
+      reason: "Latest cached close is older than 3 calendar days.",
+      staleAfterDate: "2026-06-08",
+      status: "stale",
+      windowDays: 3,
+    });
+  });
+
+  it("marks missing or invalid latest close dates unavailable", () => {
+    expect(
+      classifyStockDetailPriceFreshness(
+        null,
+        new Date("2026-06-09T09:00:00.000Z"),
+      ),
+    ).toEqual({
+      ageDays: null,
+      asOfDate: null,
+      currentDate: "2026-06-09",
+      reason: "No usable latest cached close date is available.",
+      staleAfterDate: null,
+      status: "unavailable",
+      windowDays: 3,
+    });
+
+    expect(
+      classifyStockDetailPriceFreshness(
+        "2026-02-30",
+        new Date("2026-06-09T09:00:00.000Z"),
+      ).status,
+    ).toBe("unavailable");
   });
 });
 
