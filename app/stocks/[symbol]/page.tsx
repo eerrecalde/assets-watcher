@@ -3,11 +3,16 @@ import { redirect } from "next/navigation";
 
 import {
   createCachedFiftyTwoWeekRange,
+  createCachedPriceMovementSummary,
   createHistoricalPriceChartPoints,
   createLatestCachedPriceSummary,
   createStockProfileFields,
   getTrailingFiftyTwoWeekStartDate,
+  getTrailingOneYearStartDate,
   type CachedFiftyTwoWeekRange,
+  type CachedMovingAverageMetric,
+  type CachedPriceMovementMetric,
+  type CachedPriceMovementSummary,
   type HistoricalPriceChartPoint,
   type LatestCachedPriceSummary,
   type StockPriceInput,
@@ -112,6 +117,24 @@ function formatInteger(value: number) {
 
 function formatPercentage(value: number | null) {
   return value === null ? "Not cached" : `${formatNumber(value, 2)}%`;
+}
+
+function formatSignedPercentage(value: number | null) {
+  if (value === null) {
+    return "Unavailable";
+  }
+
+  const formatted = formatNumber(Math.abs(value), 2);
+
+  if (value > 0) {
+    return `+${formatted}%`;
+  }
+
+  if (value < 0) {
+    return `-${formatted}%`;
+  }
+
+  return "0%";
 }
 
 function buildLatestPriceMap(
@@ -637,11 +660,11 @@ function CachedRangeCard({
     <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
       <div>
         <h2 className="text-lg font-semibold text-white">
-          Cached 52-week range
+          Cached price range
         </h2>
         <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
-          Calculated only from cached daily price rows in the latest cached
-          52-week window.
+          Calculated only from cached daily price rows. A 52-week high or low
+          is shown only when the cache covers the full trailing window.
         </p>
       </div>
 
@@ -656,7 +679,7 @@ function CachedRangeCard({
           <dl className="mt-6 grid gap-4 sm:grid-cols-2">
             <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
               <dt className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
-                Cached high
+                {range.hasFullWindow ? "52-week high" : "Cached high"}
               </dt>
               <dd className="mt-2 text-xl font-semibold text-white">
                 {formatCurrency(range.high, currency)}
@@ -664,7 +687,7 @@ function CachedRangeCard({
             </div>
             <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
               <dt className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
-                Cached low
+                {range.hasFullWindow ? "52-week low" : "Cached low"}
               </dt>
               <dd className="mt-2 text-xl font-semibold text-white">
                 {formatCurrency(range.low, currency)}
@@ -672,9 +695,17 @@ function CachedRangeCard({
             </div>
           </dl>
           <p className="mt-4 text-sm text-neutral-500">
-            Based on {formatInteger(range.rowCount)} cached row
+            {range.hasFullWindow
+              ? "Full trailing 52-week cache"
+              : "Partial cached range"}{" "}
+            based on {formatInteger(range.rowCount)} cached row
             {range.rowCount === 1 ? "" : "s"} from {formatDate(range.startDate)}{" "}
             to {formatDate(range.endDate)}.
+            {!range.hasFullWindow
+              ? ` A full 52-week range needs cached prices back to ${formatDate(
+                  range.requiredStartDate,
+                )}.`
+              : null}
           </p>
         </>
       ) : (
@@ -684,6 +715,145 @@ function CachedRangeCard({
         </p>
       )}
     </section>
+  );
+}
+
+function PriceMovementCard({
+  currency,
+  loadError,
+  summary,
+}: {
+  currency: string;
+  loadError?: string;
+  summary: CachedPriceMovementSummary | null;
+}) {
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">
+            Recent price context
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            Cached historical movement and averages for context only. These
+            metrics are not financial advice or a trading recommendation.
+          </p>
+        </div>
+        {summary?.latestDate ? (
+          <p className="text-sm text-neutral-500">
+            Latest close {formatDate(summary.latestDate)}
+          </p>
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <p className="mt-5 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+          Cached price history could not be loaded.
+        </p>
+      ) : null}
+
+      {summary && summary.rowCount > 0 ? (
+        <>
+          <dl className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {summary.movements.map((movement) => (
+              <MovementMetricCard key={movement.id} metric={movement} />
+            ))}
+          </dl>
+
+          <dl className="mt-4 grid gap-4 sm:grid-cols-2">
+            {summary.movingAverages.map((average) => (
+              <MovingAverageMetricCard
+                currency={currency}
+                key={average.id}
+                metric={average}
+              />
+            ))}
+          </dl>
+
+          <p className="mt-4 text-sm text-neutral-500">
+            Based on {formatInteger(summary.rowCount)} cached daily close
+            {summary.rowCount === 1 ? "" : "s"}
+            {summary.earliestDate && summary.latestDate
+              ? ` from ${formatDate(summary.earliestDate)} to ${formatDate(
+                  summary.latestDate,
+                )}.`
+              : "."}
+          </p>
+        </>
+      ) : (
+        <p className="mt-6 rounded-md border border-neutral-800 bg-neutral-950 px-4 py-4 text-sm leading-6 text-neutral-400">
+          Recent movement and moving averages are unavailable because there are
+          no usable cached daily close prices for this stock.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function MovementMetricCard({ metric }: { metric: CachedPriceMovementMetric }) {
+  const tone =
+    metric.percentChange === null
+      ? "text-neutral-500"
+      : metric.percentChange > 0
+        ? "text-emerald-200"
+        : metric.percentChange < 0
+          ? "text-red-200"
+          : "text-neutral-100";
+
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
+      <dt className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+        {metric.label}
+      </dt>
+      <dd className={`mt-2 text-xl font-semibold ${tone}`}>
+        {formatSignedPercentage(metric.percentChange)}
+      </dd>
+      <dd className="mt-1 text-xs leading-5 text-neutral-500">
+        {metric.unavailableReason
+          ? metric.unavailableReason
+          : metric.baselineDate
+            ? `Compared with cached close on ${formatDate(metric.baselineDate)}.`
+            : "Unavailable from cached history."}
+      </dd>
+    </div>
+  );
+}
+
+function MovingAverageMetricCard({
+  currency,
+  metric,
+}: {
+  currency: string;
+  metric: CachedMovingAverageMetric;
+}) {
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
+      <dt className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+        {metric.label}
+      </dt>
+      <dd
+        className={
+          metric.value === null
+            ? "mt-2 text-xl font-semibold text-neutral-500"
+            : "mt-2 text-xl font-semibold text-white"
+        }
+      >
+        {metric.value === null
+          ? "Unavailable"
+          : formatCurrency(metric.value, currency)}
+      </dd>
+      <dd className="mt-1 text-xs leading-5 text-neutral-500">
+        {metric.unavailableReason
+          ? `${metric.unavailableReason} Cached rows available: ${formatInteger(
+              metric.rowCount,
+            )}.`
+          : metric.startDate && metric.endDate
+            ? `Average of ${formatInteger(metric.rowCount)} cached closes from ${formatDate(
+                metric.startDate,
+              )} to ${formatDate(metric.endDate)}.`
+            : "Unavailable from cached history."}
+      </dd>
+    </div>
   );
 }
 
@@ -706,6 +876,7 @@ export default async function StockDetailPage({ params }: PageProps) {
   let latestPriceLoadError: string | undefined;
   let cachedRange: CachedFiftyTwoWeekRange | null = null;
   let cachedRangeLoadError: string | undefined;
+  let priceMovementSummary: CachedPriceMovementSummary | null = null;
   let historicalPriceChartPoints: HistoricalPriceChartPoint[] = [];
   const defaultPortfolioResult = await ensureDefaultPortfolioForUser(
     supabase,
@@ -739,21 +910,25 @@ export default async function StockDetailPage({ params }: PageProps) {
       latestPriceLoadError = latestPriceResult.error?.message;
 
       if (latestPrice) {
-        const rangeResult = await supabase
+        const contextResult = await supabase
           .from("stock_prices")
           .select("symbol,price_date,high,low,close,volume,created_at")
           .eq("symbol", symbol)
-          .gte(
-            "price_date",
-            getTrailingFiftyTwoWeekStartDate(latestPrice.price_date),
-          )
+          .gte("price_date", getTrailingOneYearStartDate(latestPrice.price_date))
           .lte("price_date", latestPrice.price_date)
           .order("price_date", { ascending: true });
 
-        cachedRangeLoadError = rangeResult.error?.message;
-        const cachedPriceRows = rangeResult.data ?? [];
+        cachedRangeLoadError = contextResult.error?.message;
+        const cachedContextRows = contextResult.data ?? [];
+        const trailingFiftyTwoWeekStartDate =
+          getTrailingFiftyTwoWeekStartDate(latestPrice.price_date);
+        const cachedPriceRows = cachedContextRows.filter(
+          (row) => row.price_date >= trailingFiftyTwoWeekStartDate,
+        );
 
         cachedRange = createCachedFiftyTwoWeekRange(cachedPriceRows);
+        priceMovementSummary =
+          createCachedPriceMovementSummary(cachedContextRows);
         historicalPriceChartPoints =
           createHistoricalPriceChartPoints(cachedPriceRows);
       }
@@ -885,6 +1060,11 @@ export default async function StockDetailPage({ params }: PageProps) {
                 currency={stock.currency}
                 loadError={cachedRangeLoadError}
                 points={historicalPriceChartPoints}
+              />
+              <PriceMovementCard
+                currency={stock.currency}
+                loadError={cachedRangeLoadError}
+                summary={priceMovementSummary}
               />
               <CachedRangeCard
                 currency={stock.currency}

@@ -118,13 +118,34 @@ Likely first paid upgrade:
 Cost control rules:
 
 - Cache stock prices and fundamentals.
+- Use the cache to avoid rate limits and unnecessary provider calls, not as a
+  reason to show stale market data indefinitely.
 - Do not fetch market data on every page load.
 - Refresh prices daily.
 - Refresh fundamentals weekly or monthly.
+- Track cache freshness for market data shown to users.
+- Clearly show the "as of" date for cached prices and derived metrics.
+- Mark market data as stale when the latest cached price is older than the
+  accepted freshness window for that data type.
+- Allow stale tracked symbols to be refreshed through controlled paths such as
+  scheduled jobs and explicit manual refresh actions.
 - Generate AI takes only on demand.
 - Store AI takes so users do not regenerate them unnecessarily.
 - Add per-user AI rate limits.
 - Keep AI prompts compact.
+
+Cache freshness principle:
+
+```txt
+Cache = rate-limit shield and fast local snapshot
+Freshness state = whether the cached snapshot is current enough for display
+Refresh path = controlled scheduled/manual provider fetch, not every page load
+```
+
+The app should avoid silently presenting old prices or movement metrics as
+current context. If cached data is stale, the UI should either mark the metric
+as stale, show it explicitly as historical/as-of context, or offer a controlled
+refresh path.
 
 ---
 
@@ -245,9 +266,9 @@ Show:
 
 - Company profile
 - Sector and industry
-- Latest cached price
-- Price chart
-- Recent price movement
+- Latest cached price with cache freshness and as-of date
+- Price chart with cache freshness and as-of date
+- Recent price movement with cache freshness and as-of date
 - 52-week high/low if available
 - User holding summary if owned
 - Watchlist status if watched
@@ -862,6 +883,7 @@ Includes:
 - Cached company profile data
 - Cached latest prices
 - Historical daily prices
+- Cache freshness status for latest prices and derived market metrics
 - Manual symbol refresh
 - Scheduled refresh endpoint
 - Missing-data handling
@@ -884,6 +906,7 @@ Includes:
 - User holding summary
 - Price chart
 - Recent price movement
+- Cache freshness and as-of indicators for stock detail market data
 - Fundamentals section
 - Insufficient-data states
 
@@ -1012,6 +1035,12 @@ Includes:
 #19 Add manual symbol refresh action
 #20 Add scheduled refresh endpoint
 #21 Handle missing/limited market data gracefully
+```
+
+Planned follow-up task:
+
+```txt
+Add cache freshness status and stale-data refresh UX
 ```
 
 ---
