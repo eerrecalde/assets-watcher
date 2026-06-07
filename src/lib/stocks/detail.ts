@@ -3,6 +3,8 @@ import type { Database } from "../../types/supabase";
 
 type StockRow = Database["public"]["Tables"]["stocks"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
+type StockFundamentalRow =
+  Database["public"]["Tables"]["stock_fundamentals"]["Row"];
 
 export type StockProfileInput = Pick<
   StockRow,
@@ -19,6 +21,27 @@ export type StockProfileInput = Pick<
 export type StockPriceInput = Pick<
   StockPriceRow,
   "close" | "created_at" | "high" | "low" | "price_date" | "symbol" | "volume"
+>;
+
+export type StockFundamentalInput = Pick<
+  StockFundamentalRow,
+  | "book_value_per_share"
+  | "created_at"
+  | "current_ratio"
+  | "debt_to_equity"
+  | "dividend_yield"
+  | "eps"
+  | "fiscal_period"
+  | "fiscal_year"
+  | "free_cash_flow"
+  | "net_income"
+  | "pb_ratio"
+  | "pe_ratio"
+  | "period_type"
+  | "revenue"
+  | "symbol"
+  | "total_debt"
+  | "total_equity"
 >;
 
 export type StockProfileField = {
@@ -83,6 +106,27 @@ export type CachedPriceMovementSummary = {
   movingAverages: CachedMovingAverageMetric[];
   movements: CachedPriceMovementMetric[];
   rowCount: number;
+};
+
+export type StockFundamentalMetricFormat =
+  | "currency"
+  | "number"
+  | "percentage";
+
+export type StockFundamentalMetric = {
+  format: StockFundamentalMetricFormat;
+  isMissing: boolean;
+  label: string;
+  value: number | null;
+};
+
+export type StockFundamentalsSummary = {
+  cachedAt: string;
+  fiscalPeriod: string;
+  fiscalYear: number;
+  periodType: StockFundamentalInput["period_type"];
+  qualityAndSafetyMetrics: StockFundamentalMetric[];
+  valuationMetrics: StockFundamentalMetric[];
 };
 
 export function createStockProfileFields(
@@ -184,6 +228,79 @@ export function createCachedPriceMovementSummary(
   };
 }
 
+export function createStockFundamentalsSummary(
+  fundamentals: StockFundamentalInput | null,
+): StockFundamentalsSummary | null {
+  if (!fundamentals) {
+    return null;
+  }
+
+  return {
+    cachedAt: fundamentals.created_at,
+    fiscalPeriod: fundamentals.fiscal_period,
+    fiscalYear: fundamentals.fiscal_year,
+    periodType: fundamentals.period_type,
+    valuationMetrics: [
+      createFundamentalMetric("EPS", fundamentals.eps, "currency"),
+      createFundamentalMetric(
+        "Book value / share",
+        fundamentals.book_value_per_share,
+        "currency",
+      ),
+      createFundamentalMetric("P/E ratio", fundamentals.pe_ratio, "number"),
+      createFundamentalMetric("P/B ratio", fundamentals.pb_ratio, "number"),
+      createFundamentalMetric(
+        "Dividend yield",
+        fundamentals.dividend_yield,
+        "percentage",
+      ),
+    ],
+    qualityAndSafetyMetrics: [
+      createFundamentalMetric(
+        "Debt / equity",
+        fundamentals.debt_to_equity,
+        "number",
+      ),
+      createFundamentalMetric(
+        "Current ratio",
+        fundamentals.current_ratio,
+        "number",
+      ),
+      createFundamentalMetric("Revenue", fundamentals.revenue, "currency"),
+      createFundamentalMetric(
+        "Net income",
+        fundamentals.net_income,
+        "currency",
+      ),
+      createFundamentalMetric(
+        "Free cash flow",
+        fundamentals.free_cash_flow,
+        "currency",
+      ),
+      createFundamentalMetric(
+        "Total debt",
+        fundamentals.total_debt,
+        "currency",
+      ),
+      createFundamentalMetric(
+        "Total equity",
+        fundamentals.total_equity,
+        "currency",
+      ),
+    ],
+  };
+}
+
+export function selectLatestRelevantFundamentals(
+  fundamentalsRows: StockFundamentalInput[],
+): StockFundamentalInput | null {
+  if (fundamentalsRows.length === 0) {
+    return null;
+  }
+
+  return [...fundamentalsRows].sort(compareFundamentalsByRelevance)[0];
+}
+
 export function createHistoricalPriceChartPoints(
   priceRows: Pick<StockPriceInput, "close" | "price_date">[],
 ): HistoricalPriceChartPoint[] {
@@ -245,6 +362,40 @@ function toPricePoint(value: NumericInput, fallback: number | null) {
   return toFiniteNumber(value) ?? fallback;
 }
 
+function createFundamentalMetric(
+  label: string,
+  input: NumericInput,
+  format: StockFundamentalMetricFormat,
+): StockFundamentalMetric {
+  const value = toFiniteNumber(input);
+
+  return {
+    format,
+    isMissing: value === null,
+    label,
+    value,
+  };
+}
+
+function compareFundamentalsByRelevance(
+  first: StockFundamentalInput,
+  second: StockFundamentalInput,
+) {
+  const periodPriorityDelta =
+    FUNDAMENTAL_PERIOD_PRIORITY[first.period_type] -
+    FUNDAMENTAL_PERIOD_PRIORITY[second.period_type];
+
+  if (periodPriorityDelta !== 0) {
+    return periodPriorityDelta;
+  }
+
+  if (first.fiscal_year !== second.fiscal_year) {
+    return second.fiscal_year - first.fiscal_year;
+  }
+
+  return second.created_at.localeCompare(first.created_at);
+}
+
 const MOVEMENT_WINDOWS = [
   { amount: 7, id: "1w", label: "1 week", unit: "day" },
   { amount: 1, id: "1m", label: "1 month", unit: "month" },
@@ -256,6 +407,12 @@ const MOVING_AVERAGE_WINDOWS = [
   { id: "50d", label: "50-day moving average", rowCount: 50 },
   { id: "200d", label: "200-day moving average", rowCount: 200 },
 ] as const;
+
+const FUNDAMENTAL_PERIOD_PRIORITY = {
+  ttm: 0,
+  annual: 1,
+  quarterly: 2,
+} satisfies Record<StockFundamentalInput["period_type"], number>;
 
 function createCachedPriceMovementMetric(
   rows: HistoricalPriceChartPoint[],

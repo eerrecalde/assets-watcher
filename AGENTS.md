@@ -17,6 +17,8 @@ For every issue:
 - Do not implement unrelated milestones.
 - Update tests and README when relevant.
 - Explain assumptions in the final summary.
+- After the assumption, please analyse whether the assumption makes sense from the product plan stand point and confirm this.
+- If from the analysis above we determine that it needs further adjustments (code or plan wise), let's discuss about the possibility of tackling this on the same work or to create a ticket for later on.
 
 ## GitHub Issues
 

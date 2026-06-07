@@ -7,8 +7,10 @@ import {
   createHistoricalPriceChartPoints,
   createLatestCachedPriceSummary,
   createStockProfileFields,
+  createStockFundamentalsSummary,
   getTrailingFiftyTwoWeekStartDate,
   getTrailingOneYearStartDate,
+  selectLatestRelevantFundamentals,
   type CachedFiftyTwoWeekRange,
   type CachedMovingAverageMetric,
   type CachedPriceMovementMetric,
@@ -16,6 +18,9 @@ import {
   type HistoricalPriceChartPoint,
   type LatestCachedPriceSummary,
   type StockPriceInput,
+  type StockFundamentalMetric,
+  type StockFundamentalInput,
+  type StockFundamentalsSummary,
 } from "@/lib/stocks/detail";
 import {
   isValidNormalizedStockSymbol,
@@ -117,6 +122,42 @@ function formatInteger(value: number) {
 
 function formatPercentage(value: number | null) {
   return value === null ? "Not cached" : `${formatNumber(value, 2)}%`;
+}
+
+function formatFundamentalPercentage(value: number) {
+  return `${formatNumber(value * 100, 2)}%`;
+}
+
+function formatFundamentalPeriodType(
+  periodType: StockFundamentalsSummary["periodType"],
+) {
+  return {
+    annual: "Annual",
+    quarterly: "Quarterly",
+    ttm: "TTM",
+  }[periodType];
+}
+
+function formatFundamentalMetricValue({
+  currency,
+  metric,
+}: {
+  currency: string;
+  metric: StockFundamentalMetric;
+}) {
+  if (metric.value === null) {
+    return "Unavailable";
+  }
+
+  if (metric.format === "currency") {
+    return formatCurrency(metric.value, currency);
+  }
+
+  if (metric.format === "percentage") {
+    return formatFundamentalPercentage(metric.value);
+  }
+
+  return formatNumber(metric.value, 2);
 }
 
 function formatSignedPercentage(value: number | null) {
@@ -790,6 +831,132 @@ function PriceMovementCard({
   );
 }
 
+function FundamentalsCard({
+  currency,
+  loadError,
+  summary,
+}: {
+  currency: string;
+  loadError?: string;
+  summary: StockFundamentalsSummary | null;
+}) {
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">
+            Key fundamentals
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            Latest cached valuation, quality, and safety fields from the local
+            fundamentals cache.
+          </p>
+        </div>
+        {summary ? (
+          <p className="text-sm text-neutral-500">
+            Cached {formatDateTime(summary.cachedAt)}
+          </p>
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <p className="mt-5 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+          Cached fundamentals could not be loaded.
+        </p>
+      ) : null}
+
+      {summary ? (
+        <>
+          <dl className="mt-6 grid gap-4 sm:grid-cols-3">
+            <FundamentalMetricCard
+              label="Fiscal period"
+              value={`${summary.fiscalPeriod} ${summary.fiscalYear}`}
+            />
+            <FundamentalMetricCard
+              label="Period type"
+              value={formatFundamentalPeriodType(summary.periodType)}
+            />
+            <FundamentalMetricCard
+              label="Cache stored"
+              value={formatDateTime(summary.cachedAt)}
+            />
+          </dl>
+
+          <div className="mt-7 grid gap-6 xl:grid-cols-2">
+            <FundamentalMetricGroup
+              currency={currency}
+              metrics={summary.valuationMetrics}
+              title="Valuation"
+            />
+            <FundamentalMetricGroup
+              currency={currency}
+              metrics={summary.qualityAndSafetyMetrics}
+              title="Quality and safety"
+            />
+          </div>
+        </>
+      ) : (
+        <p className="mt-6 rounded-md border border-neutral-800 bg-neutral-950 px-4 py-4 text-sm leading-6 text-neutral-400">
+          No cached fundamentals are available for this stock yet.
+        </p>
+      )}
+    </section>
+  );
+}
+
+function FundamentalMetricGroup({
+  currency,
+  metrics,
+  title,
+}: {
+  currency: string;
+  metrics: StockFundamentalMetric[];
+  title: string;
+}) {
+  return (
+    <div>
+      <h3 className="text-sm font-semibold text-neutral-100">{title}</h3>
+      <dl className="mt-3 grid gap-4 sm:grid-cols-2">
+        {metrics.map((metric) => (
+          <FundamentalMetricCard
+            isMissing={metric.isMissing}
+            key={metric.label}
+            label={metric.label}
+            value={formatFundamentalMetricValue({ currency, metric })}
+          />
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+function FundamentalMetricCard({
+  isMissing = false,
+  label,
+  value,
+}: {
+  isMissing?: boolean;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
+      <dt className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+        {label}
+      </dt>
+      <dd
+        className={
+          isMissing
+            ? "mt-2 break-words text-sm font-medium text-neutral-500"
+            : "mt-2 break-words text-sm font-medium text-neutral-100"
+        }
+      >
+        {value}
+      </dd>
+    </div>
+  );
+}
+
 function MovementMetricCard({ metric }: { metric: CachedPriceMovementMetric }) {
   const tone =
     metric.percentChange === null
@@ -878,6 +1045,8 @@ export default async function StockDetailPage({ params }: PageProps) {
   let cachedRangeLoadError: string | undefined;
   let priceMovementSummary: CachedPriceMovementSummary | null = null;
   let historicalPriceChartPoints: HistoricalPriceChartPoint[] = [];
+  let latestFundamentals: StockFundamentalInput | null = null;
+  let latestFundamentalsLoadError: string | undefined;
   const defaultPortfolioResult = await ensureDefaultPortfolioForUser(
     supabase,
     user,
@@ -932,10 +1101,27 @@ export default async function StockDetailPage({ params }: PageProps) {
         historicalPriceChartPoints =
           createHistoricalPriceChartPoints(cachedPriceRows);
       }
+
+      const latestFundamentalsResult = await supabase
+        .from("stock_fundamentals")
+        .select(
+          "symbol,fiscal_period,fiscal_year,period_type,eps,book_value_per_share,pe_ratio,pb_ratio,debt_to_equity,current_ratio,dividend_yield,revenue,net_income,free_cash_flow,total_debt,total_equity,created_at",
+        )
+        .eq("symbol", symbol)
+        .order("fiscal_year", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(12);
+
+      latestFundamentals = selectLatestRelevantFundamentals(
+        latestFundamentalsResult.data ?? [],
+      );
+      latestFundamentalsLoadError = latestFundamentalsResult.error?.message;
     }
   }
 
   const latestPriceSummary = createLatestCachedPriceSummary(latestPrice);
+  const fundamentalsSummary =
+    createStockFundamentalsSummary(latestFundamentals);
   const cashResult = portfolio
     ? await supabase
         .from("portfolio_cash")
@@ -1065,6 +1251,11 @@ export default async function StockDetailPage({ params }: PageProps) {
                 currency={stock.currency}
                 loadError={cachedRangeLoadError}
                 summary={priceMovementSummary}
+              />
+              <FundamentalsCard
+                currency={stock.currency}
+                loadError={latestFundamentalsLoadError}
+                summary={fundamentalsSummary}
               />
               <CachedRangeCard
                 currency={stock.currency}
