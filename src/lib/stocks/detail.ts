@@ -42,6 +42,11 @@ export type CachedFiftyTwoWeekRange = {
   endDate: string;
 };
 
+export type HistoricalPriceChartPoint = {
+  close: number;
+  priceDate: string;
+};
+
 export function createStockProfileFields(
   stock: StockProfileInput,
 ): StockProfileField[] {
@@ -113,6 +118,26 @@ export function createCachedFiftyTwoWeekRange(
       usableRows[0].priceDate,
     ),
   };
+}
+
+export function createHistoricalPriceChartPoints(
+  priceRows: Pick<StockPriceInput, "close" | "price_date">[],
+): HistoricalPriceChartPoint[] {
+  return priceRows
+    .map((row) => {
+      const close = toFiniteNumber(row.close);
+
+      if (close === null) {
+        return null;
+      }
+
+      return {
+        close,
+        priceDate: row.price_date,
+      };
+    })
+    .filter((row): row is HistoricalPriceChartPoint => row !== null)
+    .sort((first, second) => first.priceDate.localeCompare(second.priceDate));
 }
 
 export function getTrailingFiftyTwoWeekStartDate(priceDate: string) {

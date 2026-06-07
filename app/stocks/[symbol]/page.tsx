@@ -3,10 +3,12 @@ import { redirect } from "next/navigation";
 
 import {
   createCachedFiftyTwoWeekRange,
+  createHistoricalPriceChartPoints,
   createLatestCachedPriceSummary,
   createStockProfileFields,
   getTrailingFiftyTwoWeekStartDate,
   type CachedFiftyTwoWeekRange,
+  type HistoricalPriceChartPoint,
   type LatestCachedPriceSummary,
   type StockPriceInput,
 } from "@/lib/stocks/detail";
@@ -37,6 +39,15 @@ type PageProps = {
   params: Promise<{
     symbol: string;
   }>;
+};
+
+const chartDimensions = {
+  height: 320,
+  paddingBottom: 48,
+  paddingLeft: 112,
+  paddingRight: 28,
+  paddingTop: 24,
+  width: 760,
 };
 
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
@@ -118,6 +129,72 @@ function buildLatestPriceMap(
   }
 
   return latestPrices;
+}
+
+function createPriceHistoryChart(points: HistoricalPriceChartPoint[]) {
+  if (points.length < 2) {
+    return null;
+  }
+
+  const plot = {
+    bottom: chartDimensions.height - chartDimensions.paddingBottom,
+    left: chartDimensions.paddingLeft,
+    right: chartDimensions.width - chartDimensions.paddingRight,
+    top: chartDimensions.paddingTop,
+  };
+  const closes = points.map((point) => point.close);
+  const minClose = Math.min(...closes);
+  const maxClose = Math.max(...closes);
+  const closeRange = maxClose - minClose;
+  const padding =
+    closeRange === 0 ? Math.max(Math.abs(maxClose) * 0.05, 1) : closeRange * 0.08;
+  const yMin = minClose - padding;
+  const yMax = maxClose + padding;
+  const yRange = yMax - yMin;
+  const plotWidth = plot.right - plot.left;
+  const plotHeight = plot.bottom - plot.top;
+  const xForIndex = (index: number) =>
+    plot.left + (index / (points.length - 1)) * plotWidth;
+  const yForClose = (close: number) =>
+    plot.bottom - ((close - yMin) / yRange) * plotHeight;
+  const plottedPoints = points.map((point, index) => ({
+    ...point,
+    x: xForIndex(index),
+    y: yForClose(point.close),
+  }));
+  const xTickIndexes = Array.from(
+    new Set([0, Math.floor((points.length - 1) / 2), points.length - 1]),
+  );
+
+  return {
+    endDate: points[points.length - 1].priceDate,
+    latestPoint: plottedPoints[plottedPoints.length - 1],
+    linePath: plottedPoints
+      .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
+      .join(" "),
+    maxClose,
+    minClose,
+    plot,
+    startDate: points[0].priceDate,
+    xTicks: xTickIndexes.map((index) => ({
+      priceDate: points[index].priceDate,
+      textAnchor:
+        index === 0
+          ? ("start" as const)
+          : index === points.length - 1
+            ? ("end" as const)
+            : ("middle" as const),
+      x: xForIndex(index),
+    })),
+    yTicks: Array.from({ length: 5 }, (_, index) => {
+      const value = yMin + ((yMax - yMin) * index) / 4;
+
+      return {
+        value,
+        y: yForClose(value),
+      };
+    }).reverse(),
+  };
 }
 
 function UnavailableStockState({
@@ -398,6 +475,155 @@ function LatestPriceCard({
   );
 }
 
+function PriceHistoryChartCard({
+  currency,
+  loadError,
+  points,
+}: {
+  currency: string;
+  loadError?: string;
+  points: HistoricalPriceChartPoint[];
+}) {
+  const chart = createPriceHistoryChart(points);
+
+  return (
+    <section className="min-w-0 rounded-lg border border-neutral-800 bg-neutral-900/70 p-5 sm:p-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">
+            Cached price history
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            Daily close prices from the local cache. The chart does not request
+            live market data.
+          </p>
+        </div>
+        {chart ? (
+          <p className="text-sm text-neutral-500">
+            {formatDate(chart.startDate)} to {formatDate(chart.endDate)}
+          </p>
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <p className="mt-5 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+          Cached price history could not be loaded.
+        </p>
+      ) : null}
+
+      {chart ? (
+        <div className="mt-6 max-w-full overflow-x-auto rounded-md border border-neutral-800 bg-neutral-950 p-3 sm:p-4">
+          <svg
+            aria-label={`Cached daily close price chart from ${chart.startDate} to ${chart.endDate}`}
+            className="h-80 min-w-[640px] overflow-visible"
+            role="img"
+            viewBox={`0 0 ${chartDimensions.width} ${chartDimensions.height}`}
+          >
+            <title>
+              {`Cached daily close prices from ${chart.startDate} to ${chart.endDate}`}
+            </title>
+            {chart.yTicks.map((tick) => (
+              <g key={tick.value}>
+                <line
+                  stroke="#262626"
+                  strokeWidth="1"
+                  x1={chart.plot.left}
+                  x2={chart.plot.right}
+                  y1={tick.y}
+                  y2={tick.y}
+                />
+                <text
+                  fill="#a3a3a3"
+                  fontSize="12"
+                  textAnchor="end"
+                  x={chart.plot.left - 12}
+                  y={tick.y + 4}
+                >
+                  {formatCurrency(tick.value, currency)}
+                </text>
+              </g>
+            ))}
+            <line
+              stroke="#525252"
+              strokeWidth="1"
+              x1={chart.plot.left}
+              x2={chart.plot.right}
+              y1={chart.plot.bottom}
+              y2={chart.plot.bottom}
+            />
+            <line
+              stroke="#525252"
+              strokeWidth="1"
+              x1={chart.plot.left}
+              x2={chart.plot.left}
+              y1={chart.plot.top}
+              y2={chart.plot.bottom}
+            />
+            <path
+              d={chart.linePath}
+              fill="none"
+              stroke="#34d399"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth="3"
+            />
+            <circle
+              cx={chart.latestPoint.x}
+              cy={chart.latestPoint.y}
+              fill="#0a0a0a"
+              r="5"
+              stroke="#34d399"
+              strokeWidth="3"
+            />
+            {chart.xTicks.map((tick) => (
+              <text
+                fill="#a3a3a3"
+                fontSize="12"
+                key={tick.priceDate}
+                textAnchor={tick.textAnchor}
+                x={tick.x}
+                y={chartDimensions.height - 14}
+              >
+                {formatDate(tick.priceDate)}
+              </text>
+            ))}
+          </svg>
+          <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
+            <div>
+              <dt className="text-neutral-500">Cached rows</dt>
+              <dd className="mt-1 font-medium text-neutral-100">
+                {formatInteger(points.length)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-neutral-500">Lowest close</dt>
+              <dd className="mt-1 font-medium text-neutral-100">
+                {formatCurrency(chart.minClose, currency)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-neutral-500">Highest close</dt>
+              <dd className="mt-1 font-medium text-neutral-100">
+                {formatCurrency(chart.maxClose, currency)}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      ) : (
+        <div className="mt-6 rounded-md border border-neutral-800 bg-neutral-950 px-4 py-6">
+          <h3 className="text-sm font-semibold text-neutral-100">
+            Insufficient cached historical prices
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-neutral-400">
+            At least two cached daily close prices are needed to draw the
+            history chart.
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function CachedRangeCard({
   currency,
   loadError,
@@ -480,6 +706,7 @@ export default async function StockDetailPage({ params }: PageProps) {
   let latestPriceLoadError: string | undefined;
   let cachedRange: CachedFiftyTwoWeekRange | null = null;
   let cachedRangeLoadError: string | undefined;
+  let historicalPriceChartPoints: HistoricalPriceChartPoint[] = [];
   const defaultPortfolioResult = await ensureDefaultPortfolioForUser(
     supabase,
     user,
@@ -524,7 +751,11 @@ export default async function StockDetailPage({ params }: PageProps) {
           .order("price_date", { ascending: true });
 
         cachedRangeLoadError = rangeResult.error?.message;
-        cachedRange = createCachedFiftyTwoWeekRange(rangeResult.data ?? []);
+        const cachedPriceRows = rangeResult.data ?? [];
+
+        cachedRange = createCachedFiftyTwoWeekRange(cachedPriceRows);
+        historicalPriceChartPoints =
+          createHistoricalPriceChartPoints(cachedPriceRows);
       }
     }
   }
@@ -649,6 +880,11 @@ export default async function StockDetailPage({ params }: PageProps) {
                 currency={stock.currency}
                 latestPrice={latestPriceSummary}
                 loadError={latestPriceLoadError}
+              />
+              <PriceHistoryChartCard
+                currency={stock.currency}
+                loadError={cachedRangeLoadError}
+                points={historicalPriceChartPoints}
               />
               <CachedRangeCard
                 currency={stock.currency}
