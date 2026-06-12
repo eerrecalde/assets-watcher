@@ -146,6 +146,7 @@ describe("WatchlistPage", () => {
     );
 
     expect(listWatchlistItems).toHaveBeenCalledWith(expect.anything(), user);
+    expect(html).toContain('href="/stocks/AAPL"');
     expect(html).toContain("Apple Inc.");
     expect(html).toContain("$150.00");
     expect(html).toContain("Graham label");
