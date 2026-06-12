@@ -14,6 +14,8 @@ type PortfolioRow = Database["public"]["Tables"]["portfolios"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockFundamentalRow =
   Database["public"]["Tables"]["stock_fundamentals"]["Row"];
+type WatchlistItemRow =
+  Database["public"]["Tables"]["watchlist_items"]["Row"];
 
 type QueryResult<T> = {
   data: T;
@@ -36,6 +38,10 @@ type StockDetailFixture = {
   portfolio?: Pick<PortfolioRow, "base_currency" | "id" | "name"> | null;
   stock?: StockRow | null;
   user?: { email?: string | null; id: string } | null;
+  watchlistItem?: Pick<
+    WatchlistItemRow,
+    "id" | "notes" | "target_price"
+  > | null;
 };
 
 const user = {
@@ -101,6 +107,12 @@ const holding: HoldingRow = {
   quantity: "10",
   symbol: "AAPL",
   updated_at: "2026-06-05T10:00:00.000Z",
+};
+
+const watchlistItem = {
+  id: "watchlist-1",
+  notes: "Wait for a better entry.",
+  target_price: "180",
 };
 
 describe("StockDetailPage", () => {
@@ -212,6 +224,39 @@ describe("StockDetailPage", () => {
     expect(html).toContain(
       "You do not currently hold AAPL in your default portfolio.",
     );
+  });
+
+  it("renders the signed-in user's watched status with target price and notes", async () => {
+    const html = await renderPage({
+      historicalPrices: [latestPrice],
+      latestPrice,
+      stock,
+      watchlistItem,
+    });
+
+    expect(html).toContain("Your watchlist");
+    expect(html).toContain("Watching");
+    expect(html).toContain("AAPL is in your default portfolio watchlist.");
+    expect(html).toContain("Target price");
+    expect(html).toContain("$180.00");
+    expect(html).toContain("Notes");
+    expect(html).toContain("Wait for a better entry.");
+  });
+
+  it("renders a neutral not-watched state without target price or notes", async () => {
+    const html = await renderPage({
+      historicalPrices: [latestPrice],
+      latestPrice,
+      stock,
+      watchlistItem: null,
+    });
+
+    expect(html).toContain("Your watchlist");
+    expect(html).toContain("Not watched");
+    expect(html).toContain(
+      "You are not currently watching AAPL in your default portfolio.",
+    );
+    expect(html).not.toContain("Wait for a better entry.");
   });
 
   it("renders targeted empty states for missing latest price, fundamentals, chart, and holding calculations", async () => {
@@ -391,6 +436,10 @@ function resolveFixtureQuery(
 
   if (table === "holdings") {
     return result(fixture.holdings ?? []);
+  }
+
+  if (table === "watchlist_items") {
+    return result(fixture.watchlistItem ?? null);
   }
 
   return result(null);

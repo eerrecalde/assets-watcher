@@ -172,6 +172,18 @@ function formatPercentage(value: number | null) {
   return value === null ? "Not cached" : `${formatNumber(value, 2)}%`;
 }
 
+function formatOptionalCurrencyValue(value: string | null, currency: string) {
+  if (value === null) {
+    return "Not set";
+  }
+
+  const numericValue = Number(value);
+
+  return Number.isFinite(numericValue)
+    ? formatCurrency(numericValue, currency)
+    : "Unavailable";
+}
+
 function formatFundamentalPercentage(value: number) {
   return `${formatNumber(value * 100, 2)}%`;
 }
@@ -580,6 +592,92 @@ function UserHoldingSummarySection({
             />
           </dl>
         </>
+      )}
+    </section>
+  );
+}
+
+function WatchlistStatusSection({
+  currency,
+  item,
+  loadError,
+  portfolioName,
+  symbol,
+}: {
+  currency: string;
+  item: Pick<WatchlistItemRow, "id" | "notes" | "target_price"> | null;
+  loadError: boolean;
+  portfolioName?: string;
+  symbol: string;
+}) {
+  const trimmedNotes = item?.notes?.trim();
+
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">Your watchlist</h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            Wanted-stock context for this symbol from your default portfolio.
+          </p>
+        </div>
+        {portfolioName ? (
+          <p className="text-sm text-neutral-500">{portfolioName}</p>
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <p className="mt-5 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+          Watchlist data could not be fully loaded.
+        </p>
+      ) : null}
+
+      {item ? (
+        <div className="mt-6 rounded-md border border-emerald-900 bg-emerald-950/30 p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-base font-semibold text-white">Watching</h3>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+                {symbol} is in your default portfolio watchlist.
+              </p>
+            </div>
+            <span className="inline-flex h-7 w-fit items-center rounded-md border border-emerald-800 bg-emerald-950/70 px-2.5 text-xs font-semibold text-emerald-200">
+              Watched
+            </span>
+          </div>
+
+          <dl className="mt-5 grid gap-4 sm:grid-cols-2">
+            <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
+              <dt className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+                Target price
+              </dt>
+              <dd className="mt-2 break-words text-sm font-medium text-neutral-100">
+                {formatOptionalCurrencyValue(item.target_price, currency)}
+              </dd>
+            </div>
+            <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
+              <dt className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+                Notes
+              </dt>
+              <dd
+                className={
+                  trimmedNotes
+                    ? "mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-neutral-100"
+                    : "mt-2 text-sm font-medium text-neutral-500"
+                }
+              >
+                {trimmedNotes || "No notes"}
+              </dd>
+            </div>
+          </dl>
+        </div>
+      ) : (
+        <div className="mt-6 rounded-md border border-neutral-800 bg-neutral-950 p-5">
+          <h3 className="text-base font-semibold text-white">Not watched</h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            You are not currently watching {symbol} in your default portfolio.
+          </p>
+        </div>
       )}
     </section>
   );
@@ -1475,12 +1573,16 @@ export async function StockDetailPage({
     isValidSymbol && portfolio
       ? await supabase
           .from("watchlist_items")
-          .select("id")
+          .select("id,notes,target_price")
           .eq("portfolio_id", portfolio.id)
+          .eq("user_id", authenticatedUser.id)
           .eq("symbol", symbol)
           .maybeSingle()
       : {
-          data: null as Pick<WatchlistItemRow, "id"> | null,
+          data: null as Pick<
+            WatchlistItemRow,
+            "id" | "notes" | "target_price"
+          > | null,
           error: null,
         };
   logStockDetailLoadError({
@@ -1590,12 +1692,21 @@ export async function StockDetailPage({
           )}
 
           {isValidSymbol ? (
-            <UserHoldingSummarySection
-              loadError={hasHoldingLoadError}
-              portfolioName={portfolio?.name}
-              summary={holdingSummary}
-              symbol={symbol}
-            />
+            <>
+              <UserHoldingSummarySection
+                loadError={hasHoldingLoadError}
+                portfolioName={portfolio?.name}
+                summary={holdingSummary}
+                symbol={symbol}
+              />
+              <WatchlistStatusSection
+                currency={stock?.currency ?? displayCurrency}
+                item={selectedWatchlistResult.data}
+                loadError={Boolean(selectedWatchlistResult.error)}
+                portfolioName={portfolio?.name}
+                symbol={symbol}
+              />
+            </>
           ) : null}
         </div>
       </section>
