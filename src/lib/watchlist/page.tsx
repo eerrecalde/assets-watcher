@@ -10,6 +10,7 @@ import { StockSymbolLink } from "../../components/stocks/stock-symbol-link";
 import {
   addWatchlistItemAction,
   deleteWatchlistItemAction,
+  refreshWatchlistItemMarketDataAction,
   updateWatchlistItemAction,
 } from "./actions";
 import {
@@ -35,6 +36,7 @@ type FormAction = ComponentProps<"form">["action"];
 type WatchlistFormActions = {
   add: FormAction;
   delete: FormAction;
+  refresh: FormAction;
   update: FormAction;
 };
 
@@ -52,6 +54,7 @@ export type WatchlistPageDependencies = {
 const defaultWatchlistActions = {
   add: addWatchlistItemAction,
   delete: deleteWatchlistItemAction,
+  refresh: refreshWatchlistItemMarketDataAction,
   update: updateWatchlistItemAction,
 } satisfies WatchlistFormActions;
 
@@ -369,6 +372,19 @@ function WatchlistTable({
                     >
                       Save
                     </button>
+                    <form action={actions.refresh}>
+                      <input
+                        name="watchlist_item_id"
+                        type="hidden"
+                        value={item.id}
+                      />
+                      <button
+                        className="h-10 rounded-md border border-emerald-900 px-3 text-sm font-medium text-emerald-200 transition hover:border-emerald-700 hover:text-emerald-100"
+                        type="submit"
+                      >
+                        Refresh
+                      </button>
+                    </form>
                     <form action={actions.delete}>
                       <input
                         name="watchlist_item_id"

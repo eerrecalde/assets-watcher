@@ -50,6 +50,7 @@ vi.mock("@/lib/stocks/symbols", () => ({
 import {
   addWatchlistItemAction,
   deleteWatchlistItemAction,
+  refreshWatchlistItemMarketDataAction,
   updateWatchlistItemAction,
 } from "./actions";
 
@@ -518,5 +519,112 @@ describe("deleteWatchlistItemAction", () => {
     expect(deleteQuery.eq).toHaveBeenCalledWith("user_id", "user-1");
     expect(deleteQuery.eq).toHaveBeenCalledWith("portfolio_id", "portfolio-1");
     expect(mocks.revalidatePath).toHaveBeenCalledWith("/stocks/AAPL");
+    expect(mocks.fetchAndCacheCompanyProfile).not.toHaveBeenCalled();
+    expect(mocks.fetchAndCacheLatestPrice).not.toHaveBeenCalled();
+  });
+});
+
+describe("refreshWatchlistItemMarketDataAction", () => {
+  it("refreshes market data for an owned watchlist item", async () => {
+    const { selectQueries, supabase } = createSupabaseMock({
+      selectResults: [
+        {
+          data: {
+            id: "watchlist-1",
+            portfolio_id: "portfolio-1",
+            symbol: "AAPL",
+          },
+        },
+      ],
+    });
+    const [existingItemQuery] = selectQueries;
+    mocks.createClient.mockResolvedValue(supabase);
+
+    await expectRedirect(
+      refreshWatchlistItemMarketDataAction(
+        createFormData({
+          watchlist_item_id: "watchlist-1",
+        }),
+      ),
+      "/watchlist?success=Market+data+refreshed+for+AAPL+%282026-06-05%29.",
+    );
+
+    expect(existingItemQuery.eq).toHaveBeenCalledWith("id", "watchlist-1");
+    expect(existingItemQuery.eq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(existingItemQuery.eq).toHaveBeenCalledWith(
+      "portfolio_id",
+      "portfolio-1",
+    );
+    expect(mocks.fetchAndCacheCompanyProfile).toHaveBeenCalledWith({
+      provider: { provider: "test-provider" },
+      supabase: {},
+      symbol: "AAPL",
+    });
+    expect(mocks.fetchAndCacheLatestPrice).toHaveBeenCalledWith({
+      provider: { provider: "test-provider" },
+      supabase: {},
+      symbol: "AAPL",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/watchlist");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/stocks/AAPL");
+  });
+
+  it("rejects refreshes for watchlist items the user cannot load", async () => {
+    const { supabase } = createSupabaseMock({
+      selectResults: [{ data: null }],
+    });
+    mocks.createClient.mockResolvedValue(supabase);
+
+    await expectRedirect(
+      refreshWatchlistItemMarketDataAction(
+        createFormData({
+          watchlist_item_id: "watchlist-2",
+        }),
+      ),
+      "/watchlist?error=Could+not+load+the+watchlist+item+to+refresh.",
+    );
+
+    expect(mocks.fetchAndCacheCompanyProfile).not.toHaveBeenCalled();
+    expect(mocks.fetchAndCacheLatestPrice).not.toHaveBeenCalled();
+  });
+
+  it("surfaces provider failures without changing the watchlist item", async () => {
+    const { delete: deleteMethod, insert, supabase, update } =
+      createSupabaseMock({
+        selectResults: [
+          {
+            data: {
+              id: "watchlist-1",
+              portfolio_id: "portfolio-1",
+              symbol: "AAPL",
+            },
+          },
+        ],
+      });
+    mocks.createClient.mockResolvedValue(supabase);
+    mocks.fetchAndCacheLatestPrice.mockResolvedValueOnce({
+      error: {
+        code: "provider_unavailable",
+        message: "Provider unavailable",
+      },
+      fetchedAt: new Date("2026-06-05T12:00:00.000Z"),
+      ok: false,
+      provider: "test-provider",
+    });
+
+    await expectRedirect(
+      refreshWatchlistItemMarketDataAction(
+        createFormData({
+          watchlist_item_id: "watchlist-1",
+        }),
+      ),
+      "/watchlist?error=Market+data+provider+is+unavailable.+Try+again+later.",
+    );
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+    expect(deleteMethod).not.toHaveBeenCalled();
+    expect(mocks.revalidatePath).not.toHaveBeenCalled();
   });
 });
