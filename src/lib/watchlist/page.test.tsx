@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("./actions", () => ({
   addWatchlistItemAction: "#add-watchlist",
   deleteWatchlistItemAction: "#delete-watchlist",
+  refreshWatchlistItemMarketDataAction: "#refresh-watchlist",
   updateWatchlistItemAction: "#update-watchlist",
 }));
 
@@ -157,6 +158,7 @@ describe("WatchlistPage", () => {
     expect(html).toContain('aria-label="Edit AAPL notes"');
     expect(html).toContain("Wait for a better entry.");
     expect(html).toContain("Save");
+    expect(html).toContain("Refresh");
     expect(html).toContain("Delete");
     expect(html).not.toContain("Tesla Inc.");
   });
@@ -225,6 +227,7 @@ function createDependencies(
     watchlistActions: {
       add: "#add-watchlist",
       delete: "#delete-watchlist",
+      refresh: "#refresh-watchlist",
       update: "#update-watchlist",
     },
   };

@@ -177,17 +177,17 @@ async function getAuthenticatedSupabase() {
   return { supabase, user };
 }
 
-function createMarketDataAdminClient() {
+function createMarketDataAdminClient(action: "lookup" | "refresh") {
   try {
     return createAdminClient();
   } catch (error) {
     console.error(error);
-    redirectWithError("Market data lookup is not configured correctly.");
+    redirectWithError(`Market data ${action} is not configured correctly.`);
   }
 }
 
 async function ensureStockReference(symbol: string) {
-  const admin = createMarketDataAdminClient();
+  const admin = createMarketDataAdminClient("lookup");
   let provider: ReturnType<typeof createFinancialModelingPrepProvider>;
 
   try {
@@ -240,6 +240,55 @@ async function ensureStockReference(symbol: string) {
   }
 
   return {};
+}
+
+async function refreshMarketDataForSymbol(symbol: string) {
+  const admin = createMarketDataAdminClient("refresh");
+  let provider: ReturnType<typeof createFinancialModelingPrepProvider>;
+
+  try {
+    provider = createFinancialModelingPrepProvider();
+  } catch (error) {
+    if (isMissingFmpApiKeyError(error)) {
+      redirectWithError(
+        "Market data refresh is not configured. Add FMP_API_KEY on the server.",
+      );
+    }
+
+    console.error(error);
+    redirectWithError("Could not start market data refresh.");
+  }
+
+  const profileResult = await fetchAndCacheCompanyProfile({
+    provider,
+    supabase: admin,
+    symbol,
+  });
+  const profileWarning = !profileResult.ok
+    ? `Company profile could not be refreshed: ${getMarketDataFailureMessage(
+        profileResult,
+      )}`
+    : undefined;
+
+  if (!profileResult.ok && profileResult.error.code === "cache_write_failed") {
+    console.error(profileResult.error.message);
+  }
+
+  const priceResult = await fetchAndCacheLatestPrice({
+    provider,
+    supabase: admin,
+    symbol,
+  });
+
+  if (!priceResult.ok) {
+    if (priceResult.error.code === "cache_write_failed") {
+      console.error(priceResult.error.message);
+    }
+
+    redirectWithError(getMarketDataFailureMessage(priceResult));
+  }
+
+  return { price: priceResult.data, warning: profileWarning };
 }
 
 function revalidateWatchlistPaths(symbols: string[]) {
@@ -431,4 +480,45 @@ export async function deleteWatchlistItemAction(formData: FormData) {
 
   revalidateWatchlistPaths([existingItem.symbol]);
   redirectWithSuccess("Watchlist item deleted.");
+}
+
+export async function refreshWatchlistItemMarketDataAction(formData: FormData) {
+  const watchlistItemId = getString(formData, "watchlist_item_id");
+  const { supabase, user } = await getAuthenticatedSupabase();
+  const defaultPortfolioResult = await ensureDefaultPortfolioForUser(
+    supabase,
+    user,
+  );
+
+  if ("error" in defaultPortfolioResult) {
+    redirectWithError(
+      defaultPortfolioResult.error ?? "Could not load your default portfolio.",
+    );
+  }
+
+  if (!watchlistItemId) {
+    redirectWithError("Could not identify the watchlist item to refresh.");
+  }
+
+  const { data: existingItem, error: existingItemError } = await supabase
+    .from("watchlist_items")
+    .select("id,symbol")
+    .eq("id", watchlistItemId)
+    .eq("user_id", user.id)
+    .eq("portfolio_id", defaultPortfolioResult.portfolio.id)
+    .maybeSingle();
+
+  if (existingItemError || !existingItem) {
+    redirectWithError("Could not load the watchlist item to refresh.");
+  }
+
+  const marketDataResult = await refreshMarketDataForSymbol(
+    existingItem.symbol,
+  );
+
+  revalidateWatchlistPaths([existingItem.symbol]);
+  redirectWithFeedback({
+    success: `Market data refreshed for ${marketDataResult.price.symbol} (${marketDataResult.price.priceDate}).`,
+    warning: marketDataResult.warning,
+  });
 }
