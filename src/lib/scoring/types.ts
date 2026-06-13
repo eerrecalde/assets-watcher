@@ -76,7 +76,7 @@ export type RuleExplanation = {
 export type RuleCheckResult = {
   id: string;
   explanation: RuleExplanation;
-  measuredValue: ScoringDataPoint | null;
+  measuredValue: ScoringDataPoint | ScoringDataPoint<boolean> | null;
   status: RuleCheckStatus;
   threshold: RuleThreshold | null;
 };
@@ -104,8 +104,10 @@ export type StockValuationScoringInput = {
 export type StockQualityScoringInput = {
   dividendConsistency: ScoringDataPoint<boolean> | null;
   earningsStability: ScoringDataPoint;
+  eps: ScoringDataPoint;
   freeCashFlow: ScoringDataPoint;
   netIncome: ScoringDataPoint;
+  revenue: ScoringDataPoint;
   revenueGrowth: ScoringDataPoint;
 };
 
