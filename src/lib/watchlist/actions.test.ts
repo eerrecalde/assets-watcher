@@ -219,9 +219,10 @@ beforeEach(() => {
 
 describe("addWatchlistItemAction", () => {
   it("creates a watchlist item for the default portfolio", async () => {
-    const { insert, select, supabase } = createSupabaseMock({
+    const { insert, select, selectQueries, supabase } = createSupabaseMock({
       selectResults: [{ data: null }],
     });
+    const [duplicateQuery] = selectQueries;
     mocks.createClient.mockResolvedValue(supabase);
 
     await expectRedirect(
@@ -240,6 +241,9 @@ describe("addWatchlistItemAction", () => {
       user,
     );
     expect(select).toHaveBeenCalledWith("id");
+    expect(duplicateQuery.eq).toHaveBeenCalledWith("portfolio_id", "portfolio-1");
+    expect(duplicateQuery.eq).toHaveBeenCalledWith("user_id", "user-1");
+    expect(duplicateQuery.eq).toHaveBeenCalledWith("symbol", "AAPL");
     expect(mocks.fetchAndCacheCompanyProfile).toHaveBeenCalledWith({
       provider: { provider: "test-provider" },
       supabase: {},
@@ -307,6 +311,41 @@ describe("addWatchlistItemAction", () => {
     expect(mocks.fetchAndCacheCompanyProfile).not.toHaveBeenCalled();
   });
 
+  it("validates symbols before checking duplicates or fetching market data", async () => {
+    const { insert, select, supabase } = createSupabaseMock();
+    mocks.createClient.mockResolvedValue(supabase);
+
+    await expectRedirect(
+      addWatchlistItemAction(createFormData({ symbol: "1234" })),
+      "/watchlist?error=Symbol+must+start+with+a+letter+and+use+only+uppercase+letters%2C+numbers%2C+dots%2C+or+hyphens.",
+    );
+
+    expect(select).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(mocks.fetchAndCacheCompanyProfile).not.toHaveBeenCalled();
+    expect(mocks.fetchAndCacheLatestPrice).not.toHaveBeenCalled();
+  });
+
+  it("validates notes against the database length limit", async () => {
+    const { insert, select, supabase } = createSupabaseMock();
+    mocks.createClient.mockResolvedValue(supabase);
+
+    await expectRedirect(
+      addWatchlistItemAction(
+        createFormData({
+          notes: "a".repeat(2001),
+          symbol: "MSFT",
+        }),
+      ),
+      "/watchlist?error=Notes+must+be+2000+characters+or+fewer.",
+    );
+
+    expect(select).not.toHaveBeenCalled();
+    expect(insert).not.toHaveBeenCalled();
+    expect(mocks.fetchAndCacheCompanyProfile).not.toHaveBeenCalled();
+    expect(mocks.fetchAndCacheLatestPrice).not.toHaveBeenCalled();
+  });
+
   it("still handles a duplicate insert race with a clear validation error", async () => {
     const { insert, supabase } = createSupabaseMock({
       insertError: {
@@ -323,6 +362,38 @@ describe("addWatchlistItemAction", () => {
     );
 
     expect(insert).toHaveBeenCalled();
+  });
+
+  it("saves the watched stock and warns when the latest price is unavailable", async () => {
+    const { insert, supabase } = createSupabaseMock({
+      selectResults: [{ data: null }],
+    });
+    mocks.createClient.mockResolvedValue(supabase);
+    mocks.fetchAndCacheLatestPrice.mockResolvedValueOnce({
+      error: {
+        code: "rate_limited",
+        message: "Rate limited",
+      },
+      fetchedAt: new Date("2026-06-05T12:00:00.000Z"),
+      ok: false,
+      provider: "test-provider",
+    });
+
+    await expectRedirect(
+      addWatchlistItemAction(createFormData({ symbol: "AAPL" })),
+      "/watchlist?success=Watchlist+item+added.&warning=Latest+price+could+not+be+refreshed%3A+Market+data+provider+rate+limit+reached.+Try+again+later.",
+    );
+
+    expect(insert).toHaveBeenCalledWith({
+      notes: null,
+      portfolio_id: "portfolio-1",
+      symbol: "AAPL",
+      target_price: null,
+      user_id: "user-1",
+    });
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/watchlist");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/dashboard");
+    expect(mocks.revalidatePath).toHaveBeenCalledWith("/stocks/AAPL");
   });
 });
 

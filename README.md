@@ -134,6 +134,16 @@ The initial authentication flow uses Supabase email/password auth:
 - The dashboard logout action signs the current user out and returns them to `/login`.
 - `/auth/callback` exchanges Supabase email-confirmation codes for a session.
 
+## Watchlist Behavior
+
+The watchlist tracks wanted stocks separately from owned holdings in the signed-in user's default portfolio. Each watchlist item stores a normalized symbol plus optional target price and notes. Target price is user-entered context only; it is validated as a positive decimal and is not treated as an instruction to buy, sell, or trade. Notes are optional manual context and are limited to 2,000 characters.
+
+Watchlist rows link to `/stocks/[symbol]`, appear in a dedicated dashboard section, and are protected by both `portfolio_id` and `user_id` filters in app queries. Supabase RLS remains the database ownership boundary.
+
+Market data for watchlist symbols comes from the shared local cache. Creating a watchlist item verifies and caches the stock profile through the server-only provider path before saving the item. If the stock reference cannot be verified or cached, the item is not created. If the stock profile is saved but the latest price is unavailable, incomplete, rate-limited, or the provider is temporarily unavailable, the item can still be saved with a warning; the UI then shows target price and notes while latest price reads as `Not cached` until a controlled refresh succeeds. Manual watchlist refresh uses the same controlled server-side provider path and surfaces provider failures as snackbar errors without changing the watchlist item.
+
+Missing cached company or price data is displayed explicitly as `Company unavailable`, `Not cached`, `No target`, or `No notes`; the app does not invent placeholder market data or imply a live quote. Graham labels and margin of safety are intentionally shown as `Pending Milestone 6` until deterministic scoring is implemented, so Milestone 5 can be verified without scoring logic. Product copy should stay cautious and educational: watchlist entries are wanted-stock tracking context, not investment recommendations.
+
 ## Useful Scripts
 
 - `npm run dev` starts the Next.js development server.
