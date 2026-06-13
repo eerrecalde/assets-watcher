@@ -78,8 +78,10 @@ describe("scoring data contracts", () => {
       quality: {
         dividendConsistency: null,
         earningsStability: unavailablePrice,
+        eps: availableFundamental,
         freeCashFlow: availableFundamental,
         netIncome: availableFundamental,
+        revenue: availableFundamental,
         revenueGrowth: unavailablePrice,
       },
       safety: {
