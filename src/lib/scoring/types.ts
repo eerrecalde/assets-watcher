@@ -49,6 +49,8 @@ export type StockScoreLayerId =
 export type RuleCheckStatus =
   | "pass"
   | "fail"
+  | "warning"
+  | "unavailable"
   | "insufficient_data"
   | "not_applicable";
 
