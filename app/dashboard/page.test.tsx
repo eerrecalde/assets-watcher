@@ -41,6 +41,12 @@ type QueryResult<T> = {
   error: QueryError;
 };
 
+type QueryFilter = {
+  column: string;
+  table: string;
+  value: unknown;
+};
+
 type DashboardFixture = {
   cash?: Pick<PortfolioCashRow, "amount" | "currency" | "updated_at"> | null;
   holdings?: HoldingRow[];
@@ -50,6 +56,7 @@ type DashboardFixture = {
     "portfolio_fit_label" | "scored_at" | "symbol"
   >[];
   prices?: Pick<StockPriceRow, "close" | "price_date" | "symbol">[];
+  queryFilters?: QueryFilter[];
   stockScores?: Pick<StockScoreRow, "overall_label" | "scored_at" | "symbol">[];
   stocks?: Pick<StockRow, "currency" | "name" | "symbol">[];
   user?: { email?: string | null; id: string } | null;
@@ -138,6 +145,30 @@ describe("DashboardPage", () => {
     expect(html).not.toContain("opportunity");
   });
 
+  it("queries watchlist rows for the signed-in user's default portfolio only", async () => {
+    const queryFilters: QueryFilter[] = [];
+
+    await renderDashboard({
+      queryFilters,
+      watchlistItems: [watchlistItem],
+    });
+
+    expect(queryFilters).toEqual(
+      expect.arrayContaining([
+        {
+          column: "portfolio_id",
+          table: "watchlist_items",
+          value: "portfolio-1",
+        },
+        {
+          column: "user_id",
+          table: "watchlist_items",
+          value: "user-1",
+        },
+      ]),
+    );
+  });
+
   it("renders an empty watchlist call to action", async () => {
     const html = await renderDashboard({
       watchlistItems: [],
@@ -195,7 +226,8 @@ function createSupabaseFixture(fixture: DashboardFixture) {
 
 function createQueryBuilder(table: string, fixture: DashboardFixture) {
   const builder = {
-    eq() {
+    eq(column: string, value: unknown) {
+      fixture.queryFilters?.push({ column, table, value });
       return builder;
     },
     in() {

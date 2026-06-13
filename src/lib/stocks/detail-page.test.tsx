@@ -22,6 +22,13 @@ type QueryResult<T> = {
   error: { message: string } | null;
 };
 
+type QueryFilter = {
+  column: string;
+  operator: "eq" | "gte" | "in" | "lte";
+  table: string;
+  value: unknown;
+};
+
 type StockDetailFixture = {
   cash?: Pick<PortfolioCashRow, "amount" | "currency" | "updated_at"> | null;
   fundamentals?: StockFundamentalRow[];
@@ -36,6 +43,7 @@ type StockDetailFixture = {
     "close" | "created_at" | "high" | "low" | "price_date" | "symbol" | "volume"
   > | null;
   portfolio?: Pick<PortfolioRow, "base_currency" | "id" | "name"> | null;
+  queryFilters?: QueryFilter[];
   stock?: StockRow | null;
   user?: { email?: string | null; id: string } | null;
   watchlistItem?: Pick<
@@ -243,6 +251,41 @@ describe("StockDetailPage", () => {
     expect(html).toContain("Wait for a better entry.");
   });
 
+  it("looks up watchlist status within the signed-in user's default portfolio", async () => {
+    const queryFilters: QueryFilter[] = [];
+
+    await renderPage({
+      historicalPrices: [latestPrice],
+      latestPrice,
+      queryFilters,
+      stock,
+      watchlistItem,
+    });
+
+    expect(queryFilters).toEqual(
+      expect.arrayContaining([
+        {
+          column: "portfolio_id",
+          operator: "eq",
+          table: "watchlist_items",
+          value: "portfolio-1",
+        },
+        {
+          column: "user_id",
+          operator: "eq",
+          table: "watchlist_items",
+          value: "user-1",
+        },
+        {
+          column: "symbol",
+          operator: "eq",
+          table: "watchlist_items",
+          value: "AAPL",
+        },
+      ]),
+    );
+  });
+
   it("renders a neutral not-watched state without target price or notes", async () => {
     const html = await renderPage({
       historicalPrices: [latestPrice],
@@ -352,26 +395,26 @@ function createSupabaseFixture(fixture: StockDetailFixture) {
 }
 
 function createQueryBuilder(table: string, fixture: StockDetailFixture) {
-  const filters: { column: string; operator: "eq" | "gte" | "in" | "lte" }[] =
-    [];
+  const filters: QueryFilter[] = [];
   const builder = {
-    eq(column: string) {
-      filters.push({ column, operator: "eq" });
+    eq(column: string, value: unknown) {
+      filters.push({ column, operator: "eq", table, value });
+      fixture.queryFilters?.push({ column, operator: "eq", table, value });
       return builder;
     },
-    gte(column: string) {
-      filters.push({ column, operator: "gte" });
+    gte(column: string, value: unknown) {
+      filters.push({ column, operator: "gte", table, value });
       return builder;
     },
-    in(column: string) {
-      filters.push({ column, operator: "in" });
+    in(column: string, value: unknown) {
+      filters.push({ column, operator: "in", table, value });
       return builder;
     },
     limit() {
       return builder;
     },
-    lte(column: string) {
-      filters.push({ column, operator: "lte" });
+    lte(column: string, value: unknown) {
+      filters.push({ column, operator: "lte", table, value });
       return builder;
     },
     maybeSingle: async () => resolveFixtureQuery(table, fixture, {
@@ -406,7 +449,7 @@ function resolveFixtureQuery(
     filters,
     maybeSingle,
   }: {
-    filters: { column: string; operator: "eq" | "gte" | "in" | "lte" }[];
+    filters: QueryFilter[];
     maybeSingle: boolean;
   },
 ): QueryResult<unknown> {
