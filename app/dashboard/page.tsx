@@ -7,6 +7,7 @@ import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import {
   calculateHoldingValue,
   calculatePortfolioTotals,
+  toFiniteNumber,
 } from "@/lib/portfolios/totals";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/supabase";
@@ -20,6 +21,8 @@ type PortfolioScoreRow =
 type StockRow = Database["public"]["Tables"]["stocks"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
+type WatchlistItemRow =
+  Database["public"]["Tables"]["watchlist_items"]["Row"];
 
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
 
@@ -51,6 +54,14 @@ function formatCurrency(value: number | null, currency: string) {
   currencyFormatterCache.set(cacheKey, formatter);
 
   return formatter.format(value);
+}
+
+function formatOptionalCurrency(
+  value: number | null,
+  currency: string,
+  fallback: string,
+) {
+  return value === null ? fallback : formatCurrency(value, currency);
 }
 
 function buildLatestMap<T extends { symbol: string }>(rows: T[]) {
@@ -105,12 +116,31 @@ export default async function DashboardPage() {
         .eq("portfolio_id", portfolio.id)
         .order("symbol", { ascending: true })
     : { data: [] as HoldingRow[], error: null };
+  const watchlistResult = portfolio
+    ? await supabase
+        .from("watchlist_items")
+        .select(
+          "id,portfolio_id,symbol,target_price,notes,user_id,created_at,updated_at",
+        )
+        .eq("portfolio_id", portfolio.id)
+        .eq("user_id", user.id)
+        .order("symbol", { ascending: true })
+    : { data: [] as WatchlistItemRow[], error: null };
 
   const holdings = holdingsResult.data ?? [];
-  const symbols = holdings.map((holding) => holding.symbol);
+  const watchlistItems = watchlistResult.data ?? [];
+  const holdingSymbols = holdings.map((holding) => holding.symbol);
+  const watchlistSymbols = watchlistItems.map((item) => item.symbol);
+  const symbols = Array.from(new Set([...holdingSymbols, ...watchlistSymbols]));
   const stocksResult = symbols.length
-    ? await supabase.from("stocks").select("symbol,name").in("symbol", symbols)
-    : { data: [] as Pick<StockRow, "symbol" | "name">[], error: null };
+    ? await supabase
+        .from("stocks")
+        .select("symbol,name,currency")
+        .in("symbol", symbols)
+    : {
+        data: [] as Pick<StockRow, "currency" | "name" | "symbol">[],
+        error: null,
+      };
   const pricesResult = symbols.length
     ? await supabase
         .from("stock_prices")
@@ -121,11 +151,11 @@ export default async function DashboardPage() {
         data: [] as Pick<StockPriceRow, "symbol" | "close" | "price_date">[],
         error: null,
       };
-  const stockScoresResult = symbols.length
+  const stockScoresResult = holdingSymbols.length
     ? await supabase
         .from("stock_scores")
         .select("symbol,overall_label,scored_at")
-        .in("symbol", symbols)
+        .in("symbol", holdingSymbols)
         .order("scored_at", { ascending: false })
     : {
         data: [] as Pick<
@@ -135,12 +165,12 @@ export default async function DashboardPage() {
         error: null,
       };
   const portfolioScoresResult =
-    portfolio && symbols.length
+    portfolio && holdingSymbols.length
       ? await supabase
           .from("portfolio_stock_scores")
           .select("symbol,portfolio_fit_label,scored_at")
           .eq("portfolio_id", portfolio.id)
-          .in("symbol", symbols)
+          .in("symbol", holdingSymbols)
           .order("scored_at", { ascending: false })
       : {
           data: [] as Pick<
@@ -196,13 +226,17 @@ export default async function DashboardPage() {
     enrichedHoldings,
     cashResult.data?.amount,
   );
-  const hasLoadError =
+  const hasHoldingsLoadError =
     Boolean(holdingsResult.error) ||
     Boolean(stocksResult.error) ||
     Boolean(pricesResult.error) ||
     Boolean(stockScoresResult.error) ||
     Boolean(portfolioScoresResult.error) ||
     Boolean(cashResult.error);
+  const hasWatchlistLoadError =
+    Boolean(watchlistResult.error) ||
+    Boolean(stocksResult.error) ||
+    Boolean(pricesResult.error);
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -275,6 +309,12 @@ export default async function DashboardPage() {
               </p>
             </article>
             <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+              <p className="text-sm text-neutral-400">Watched stocks</p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {watchlistItems.length}
+              </p>
+            </article>
+            <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
               <p className="text-sm text-neutral-400">Cash balance</p>
               <p className="mt-2 text-lg font-semibold text-white">
                 {formatCurrency(portfolioTotals.cashAmount, displayCurrency)}
@@ -339,7 +379,7 @@ export default async function DashboardPage() {
               </p>
             </div>
 
-            {hasLoadError ? (
+            {hasHoldingsLoadError ? (
               <p className="mt-6 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
                 Some holdings data could not be loaded.
               </p>
@@ -455,6 +495,125 @@ export default async function DashboardPage() {
                   href="/holdings"
                 >
                   Add holding
+                </Link>
+              </div>
+            )}
+          </section>
+
+          <section className="border-t border-neutral-800 pt-8">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Watchlist
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+                  Wanted stocks from your default portfolio, tracked separately
+                  from owned holdings. Cached market data is displayed only
+                  when it already exists locally.
+                </p>
+              </div>
+              <Link
+                className="inline-flex h-10 items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:text-white"
+                href="/watchlist"
+              >
+                Manage watchlist
+              </Link>
+            </div>
+
+            {hasWatchlistLoadError ? (
+              <p className="mt-6 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+                Some watchlist data could not be loaded.
+              </p>
+            ) : null}
+
+            {watchlistItems.length ? (
+              <div className="mt-5 overflow-x-auto rounded-lg border border-neutral-800">
+                <table className="min-w-[56rem] w-full border-collapse text-left text-sm">
+                  <thead className="bg-neutral-900 text-xs uppercase tracking-[0.14em] text-neutral-400">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Symbol</th>
+                      <th className="px-4 py-3 font-medium">Company</th>
+                      <th className="px-4 py-3 font-medium">
+                        Latest cached price
+                      </th>
+                      <th className="px-4 py-3 font-medium">Target price</th>
+                      <th className="px-4 py-3 font-medium">Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-800">
+                    {watchlistItems.map((item) => {
+                      const stock = stocksBySymbol.get(item.symbol);
+                      const latestPrice = latestPricesBySymbol.get(
+                        item.symbol,
+                      );
+                      const priceCurrency = stock?.currency ?? displayCurrency;
+
+                      return (
+                        <tr className="bg-neutral-950" key={item.id}>
+                          <td className="px-4 py-4 align-top">
+                            <StockSymbolLink
+                              className="font-semibold text-emerald-200 underline-offset-4 transition hover:text-emerald-100 hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
+                              symbol={item.symbol}
+                            />
+                          </td>
+                          <td className="px-4 py-4 align-top text-neutral-300">
+                            {stock?.name ? (
+                              stock.name
+                            ) : (
+                              <span className="text-neutral-500">
+                                Company unavailable
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4 align-top text-neutral-300">
+                            <div>
+                              {formatCurrency(
+                                toFiniteNumber(latestPrice?.close),
+                                priceCurrency,
+                              )}
+                            </div>
+                            {latestPrice?.price_date ? (
+                              <div className="mt-1 text-xs text-neutral-500">
+                                {latestPrice.price_date}
+                              </div>
+                            ) : null}
+                          </td>
+                          <td className="px-4 py-4 align-top text-neutral-300">
+                            {formatOptionalCurrency(
+                              toFiniteNumber(item.target_price),
+                              priceCurrency,
+                              "No target",
+                            )}
+                          </td>
+                          <td className="max-w-md px-4 py-4 align-top text-neutral-300">
+                            {item.notes ? (
+                              item.notes
+                            ) : (
+                              <span className="text-neutral-500">
+                                No notes
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
+                <h3 className="text-base font-semibold text-white">
+                  No watched stocks yet
+                </h3>
+                <p className="mt-3 max-w-xl text-sm leading-6 text-neutral-400">
+                  Add stocks you want to follow on the watchlist page. They will
+                  appear here separately from owned holdings.
+                </p>
+                <Link
+                  className="mt-5 inline-flex h-10 items-center rounded-md bg-emerald-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300"
+                  href="/watchlist"
+                >
+                  Add watched stock
                 </Link>
               </div>
             )}
