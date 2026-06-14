@@ -112,6 +112,14 @@ describe("scoring data contracts", () => {
       explanation: {
         caution:
           "This label explains cached deterministic checks and is not financial advice.",
+        dominantRules: [
+          {
+            layerId: "valuation",
+            ruleId: "valuation.graham_number_margin",
+            status: "insufficient_data",
+            summary: "Current price cannot be compared with the Graham Number yet.",
+          },
+        ],
         layerSummaries: {
           market_context: {
             summary: "Market context cannot be scored without price history.",
