@@ -108,6 +108,39 @@ describe("createStockScoringInputFromCachedRows", () => {
       value: null,
     });
   });
+
+  it("marks stale cached prices as historical context across valuation and market context inputs", () => {
+    const input = createStockScoringInputFromCachedRows({
+      currentDate: SCORE_DATE,
+      fundamentals: baseFundamentals,
+      priceRows: [
+        {
+          ...latestPrice,
+          close: "24",
+          price_date: "2026-05-29",
+        },
+        {
+          ...latestPrice,
+          close: "30",
+          price_date: "2026-06-05",
+        },
+      ],
+      symbol: "AAPL",
+    });
+
+    expect(input.valuation.currentPrice).toMatchObject({
+      asOfDate: "2026-06-05",
+      freshness: "stale",
+      source: "cached_price",
+      value: 30,
+    });
+    expect(input.marketContext.oneWeekMovementPercent).toMatchObject({
+      asOfDate: "2026-06-05",
+      freshness: "stale",
+      source: "derived_metric",
+      value: 25,
+    });
+  });
 });
 
 describe("persistStockScoreSnapshotForSymbol", () => {
@@ -223,6 +256,31 @@ describe("persistStockScoreSnapshotForSymbol", () => {
       },
     });
     expect(client.insertedStockScore).toBeNull();
+  });
+
+  it("returns a write failure when snapshot persistence fails", async () => {
+    const client = createMockSnapshotClient({
+      fundamentals: [baseFundamentals],
+      insertError: { message: "permission denied" },
+      prices: [latestPrice],
+    });
+
+    const result = await persistStockScoreSnapshotForSymbol(client, "AAPL", {
+      currentDate: SCORE_DATE,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "snapshot_write_failed",
+        message:
+          "Could not persist stock score snapshot for AAPL: permission denied",
+      },
+    });
+    expect(client.insertedStockScore).toMatchObject({
+      overall_label: "Reasonable",
+      symbol: "AAPL",
+    });
   });
 });
 
