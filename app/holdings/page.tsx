@@ -16,6 +16,7 @@ import { updateCashBalanceAction } from "@/lib/portfolios/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import {
   calculateHoldingValue,
+  calculatePositionAllocation,
   calculatePortfolioTotals,
 } from "@/lib/portfolios/totals";
 import { createClient } from "@/lib/supabase/server";
@@ -466,12 +467,11 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
                 </thead>
                 <tbody className="divide-y divide-neutral-800">
                   {enrichedHoldings.map((row) => {
-                    const allocation =
-                      portfolioTotals.totalPortfolioValue > 0
-                        ? (row.portfolioValue /
-                            portfolioTotals.totalPortfolioValue) *
-                          100
-                        : null;
+                    const allocation = calculatePositionAllocation({
+                      cashAmountInput: cashAmountValue,
+                      holding: row,
+                      holdings: enrichedHoldings,
+                    });
 
                     return (
                       <tr className="bg-neutral-950" key={row.holding.id}>
@@ -566,9 +566,16 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
                           {formatCurrency(row.unrealizedGain, row.holding.currency)}
                         </td>
                         <td className="px-4 py-4 align-top text-neutral-300">
-                          {allocation === null
-                            ? "Not cached"
-                            : `${formatNumber(allocation, 2)}%`}
+                          <div>
+                            {allocation.percentage === null
+                              ? "Not cached"
+                              : `${formatNumber(allocation.percentage, 2)}%`}
+                          </div>
+                          {allocation.status === "partial-market-data" ? (
+                            <div className="mt-1 text-xs text-amber-300">
+                              Partial data
+                            </div>
+                          ) : null}
                         </td>
                         <td className="px-4 py-4 align-top">
                           <div className="flex gap-2">
