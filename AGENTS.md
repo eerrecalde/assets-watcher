@@ -7,20 +7,26 @@ Before making product or implementation changes, read:
 Work issue-by-issue. Use GitHub issues as the unit of work.
 
 Before starting any issue work:
-- Fetch `origin main`.
-- Ensure the working branch is based on the latest `origin/main`.
-- If it is not, update or rebase before making changes.
+- Check out `main`.
+- Pull the latest changes from `origin/main`.
+- Create a new issue branch from `main`.
 
 For every issue:
 - Follow the product plan unless the issue explicitly says otherwise.
 - Keep changes scoped to the issue.
 - Do not implement unrelated milestones.
 - Update tests and README when relevant.
-- Explain assumptions in the final summary.
+- Explain any assumptions in the final summary. If there were no assumptions,
+  say so.
 - If an assumption should be preserved beyond the final summary, add or update
   a decision record in `docs/decision-records/`.
-- After the assumption, please analyse whether the assumption makes sense from the product plan stand point and confirm this.
-- If from the analysis above we determine that it needs further adjustments (code or plan wise), let's discuss about the possibility of tackling this on the same work or to create a ticket for later on.
+- For each assumption, state whether it is consistent with
+  `docs/product-plan.md`.
+- If an assumption reveals a gap or follow-up adjustment in the code or product
+  plan, discuss whether to handle it in the current issue or create a separate
+  ticket.
+- State whether the implemented feature is worth manual testing before merge,
+  and why.
 
 ## GitHub Issues
 
