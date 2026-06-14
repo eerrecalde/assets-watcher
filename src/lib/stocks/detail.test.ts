@@ -267,6 +267,39 @@ describe("createCachedFiftyTwoWeekRange", () => {
       ]),
     ).toBeNull();
   });
+
+  it("excludes cached rows older than the trailing 52-week window", () => {
+    expect(
+      createCachedFiftyTwoWeekRange([
+        {
+          price_date: "2025-05-31",
+          high: "500",
+          low: "50",
+          close: "100",
+        },
+        {
+          price_date: "2025-06-01",
+          high: "101",
+          low: "99",
+          close: "100",
+        },
+        {
+          price_date: "2026-05-31",
+          high: "150",
+          low: "140",
+          close: "145",
+        },
+      ]),
+    ).toEqual({
+      hasFullWindow: true,
+      high: 150,
+      low: 99,
+      requiredStartDate: "2025-06-01",
+      rowCount: 2,
+      startDate: "2025-06-01",
+      endDate: "2026-05-31",
+    });
+  });
 });
 
 describe("createCachedPriceMovementSummary", () => {
