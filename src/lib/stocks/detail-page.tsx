@@ -41,6 +41,14 @@ import {
   calculatePortfolioTotals,
 } from "../portfolios/totals";
 import type { Database } from "../../types/supabase";
+import type {
+  RuleCheckResult,
+  RuleCheckStatus,
+  ScoringDataPoint,
+  ScoreLayerResult,
+  StockScoreLayerId,
+  StockScoringResult,
+} from "../scoring/types";
 
 export const dynamic = "force-dynamic";
 
@@ -51,6 +59,7 @@ type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type PortfolioRow = Database["public"]["Tables"]["portfolios"]["Row"];
 type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
+type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
 type AppSupabaseClient = SupabaseClient<Database>;
 type RefreshStockDetailMarketDataAction = (
   formData: FormData,
@@ -170,6 +179,10 @@ function formatInteger(value: number) {
 
 function formatPercentage(value: number | null) {
   return value === null ? "Not cached" : `${formatNumber(value, 2)}%`;
+}
+
+function formatScoreValue(value: number | null) {
+  return value === null ? "Insufficient data" : `${formatNumber(value, 0)}/100`;
 }
 
 function formatOptionalCurrencyValue(value: string | null, currency: string) {
@@ -338,6 +351,143 @@ function formatSignedPercentage(value: number | null) {
   return "0%";
 }
 
+function formatLayerName(layerId: StockScoreLayerId) {
+  return {
+    market_context: "Market context",
+    quality: "Quality",
+    safety: "Safety",
+    valuation: "Valuation",
+  }[layerId];
+}
+
+function formatRuleStatus(status: RuleCheckStatus) {
+  return {
+    fail: "Fail",
+    insufficient_data: "Insufficient data",
+    not_applicable: "Not applicable",
+    pass: "Pass",
+    unavailable: "Unavailable",
+    warning: "Warning",
+  }[status];
+}
+
+function getRuleStatusClassName(status: RuleCheckStatus) {
+  return {
+    fail: "border-red-900 bg-red-950/50 text-red-100",
+    insufficient_data: "border-neutral-700 bg-neutral-950 text-neutral-300",
+    not_applicable: "border-neutral-700 bg-neutral-950 text-neutral-300",
+    pass: "border-emerald-800 bg-emerald-950/70 text-emerald-200",
+    unavailable: "border-neutral-700 bg-neutral-950 text-neutral-300",
+    warning: "border-amber-800 bg-amber-950/70 text-amber-100",
+  }[status];
+}
+
+function formatThresholdOperator(
+  operator: NonNullable<RuleCheckResult["threshold"]>["operator"],
+) {
+  return {
+    above: ">",
+    above_or_equal: ">=",
+    below: "<",
+    below_or_equal: "<=",
+    equals: "=",
+  }[operator];
+}
+
+function formatScoringUnitValue({
+  currency,
+  unit,
+  value,
+}: {
+  currency: string;
+  unit: "currency" | "number" | "percent" | "ratio";
+  value: number;
+}) {
+  if (unit === "currency") {
+    return formatCurrency(value, currency);
+  }
+
+  if (unit === "percent") {
+    return `${formatNumber(value, 2)}%`;
+  }
+
+  return formatNumber(value, 2);
+}
+
+function formatMeasuredValue({
+  currency,
+  measuredValue,
+  threshold,
+}: {
+  currency: string;
+  measuredValue: RuleCheckResult["measuredValue"];
+  threshold: RuleCheckResult["threshold"];
+}) {
+  if (!measuredValue) {
+    return "Unavailable";
+  }
+
+  if (measuredValue.availability !== "available") {
+    return "Unavailable";
+  }
+
+  if (typeof measuredValue.value === "boolean") {
+    return measuredValue.value ? "Yes" : "No";
+  }
+
+  return formatScoringUnitValue({
+    currency,
+    unit: threshold?.unit ?? "number",
+    value: measuredValue.value,
+  });
+}
+
+function formatThreshold({
+  currency,
+  rule,
+}: {
+  currency: string;
+  rule: RuleCheckResult;
+}) {
+  if (!rule.threshold) {
+    return "No numeric threshold";
+  }
+
+  return `${rule.threshold.label} ${formatThresholdOperator(
+    rule.threshold.operator,
+  )} ${formatScoringUnitValue({
+    currency,
+    unit: rule.threshold.unit,
+    value: rule.threshold.value,
+  })}`;
+}
+
+function getMeasuredValueMeta(measuredValue: RuleCheckResult["measuredValue"]) {
+  if (!measuredValue) {
+    return "No measured value stored for this rule.";
+  }
+
+  const dataPoint = measuredValue as ScoringDataPoint | ScoringDataPoint<boolean>;
+  const parts = [
+    `Source ${dataPoint.source.replaceAll("_", " ")}`,
+    dataPoint.asOfDate ? `as of ${dataPoint.asOfDate}` : null,
+    dataPoint.freshness !== "unknown" ? dataPoint.freshness : null,
+  ].filter(Boolean);
+
+  if (dataPoint.availability !== "available") {
+    parts.push(dataPoint.reason);
+  }
+
+  return parts.join(". ");
+}
+
+const stockScoreLayerOrder: StockScoreLayerId[] = [
+  "valuation",
+  "quality",
+  "safety",
+  "market_context",
+];
+
 function buildLatestPriceMap(
   prices: Pick<StockPriceRow, "close" | "price_date" | "symbol">[],
 ) {
@@ -373,6 +523,38 @@ function logStockDetailLoadError({
     scope,
     symbol,
   });
+}
+
+function parseStockScoreSnapshotResult(
+  snapshot: Pick<StockScoreRow, "explanation_json"> | null,
+) {
+  const value = snapshot?.explanation_json;
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const result = value.result;
+
+  if (!isRecord(result)) {
+    return null;
+  }
+
+  if (
+    typeof result.symbol !== "string" ||
+    typeof result.label !== "string" ||
+    typeof result.scoredAt !== "string" ||
+    !isRecord(result.layers) ||
+    !isRecord(result.explanation)
+  ) {
+    return null;
+  }
+
+  return result as unknown as StockScoringResult;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function createPriceHistoryChart(points: HistoricalPriceChartPoint[]) {
@@ -1219,6 +1401,241 @@ function FundamentalsCard({
   );
 }
 
+function StockScoreSnapshotSection({
+  currency,
+  loadError,
+  snapshot,
+}: {
+  currency: string;
+  loadError?: string;
+  snapshot: StockScoreRow | null;
+}) {
+  const scoringResult = parseStockScoreSnapshotResult(snapshot);
+
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">
+            Graham-inspired score
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            Cached deterministic scoring snapshot. Your rules suggest this
+            label from stored inputs; it is educational context, not
+            personalised financial advice.
+          </p>
+        </div>
+        {snapshot ? (
+          <p className="text-sm text-neutral-500">
+            Scored {formatDateTime(snapshot.scored_at)}
+          </p>
+        ) : null}
+      </div>
+
+      {loadError ? (
+        <p className="mt-5 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+          Cached Graham score data could not be loaded.
+        </p>
+      ) : null}
+
+      {!snapshot ? (
+        <div className="mt-6 rounded-md border border-neutral-800 bg-neutral-950 px-4 py-5">
+          <h3 className="text-sm font-semibold text-neutral-100">
+            Score snapshot unavailable
+          </h3>
+          <p className="mt-2 text-sm leading-6 text-neutral-400">
+            No cached deterministic score snapshot exists for this stock yet.
+            The page will show the score after a scoring job stores one.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="mt-6 rounded-md border border-emerald-900 bg-emerald-950/30 p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.14em] text-emerald-200">
+                  Overall deterministic label
+                </p>
+                <h3 className="mt-2 text-2xl font-semibold text-white">
+                  {snapshot.overall_label}
+                </h3>
+                <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-300">
+                  {scoringResult?.explanation.summary ??
+                    "The stored score columns are available, but the rule explanation payload is unavailable."}
+                </p>
+                {scoringResult?.explanation.caution ? (
+                  <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
+                    {scoringResult.explanation.caution}
+                  </p>
+                ) : null}
+              </div>
+              <span className="inline-flex h-7 w-fit items-center rounded-md border border-emerald-800 bg-emerald-950/70 px-2.5 text-xs font-semibold text-emerald-200">
+                {snapshot.overall_label}
+              </span>
+            </div>
+          </div>
+
+          <dl className="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {stockScoreLayerOrder.map((layerId) => (
+              <StockScoreLayerSummaryCard
+                key={layerId}
+                layer={scoringResult?.layers[layerId] ?? null}
+                layerId={layerId}
+                score={getStockScoreLayerColumn(snapshot, layerId)}
+              />
+            ))}
+          </dl>
+
+          {scoringResult ? (
+            <div className="mt-7 grid gap-6">
+              {stockScoreLayerOrder.map((layerId) => (
+                <StockScoreRuleGroup
+                  currency={currency}
+                  key={layerId}
+                  layer={scoringResult.layers[layerId]}
+                />
+              ))}
+            </div>
+          ) : (
+            <p className="mt-6 rounded-md border border-amber-900 bg-amber-950/40 px-4 py-4 text-sm leading-6 text-amber-100">
+              Rule-by-rule explanations are unavailable because the stored
+              snapshot payload does not match the expected schema.
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function getStockScoreLayerColumn(
+  snapshot: StockScoreRow,
+  layerId: StockScoreLayerId,
+) {
+  return {
+    market_context: snapshot.market_context_score,
+    quality: snapshot.quality_score,
+    safety: snapshot.safety_score,
+    valuation: snapshot.valuation_score,
+  }[layerId];
+}
+
+function StockScoreLayerSummaryCard({
+  layer,
+  layerId,
+  score,
+}: {
+  layer: ScoreLayerResult | null;
+  layerId: StockScoreLayerId;
+  score: number | null;
+}) {
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
+      <dt className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+        {formatLayerName(layerId)}
+      </dt>
+      <dd
+        className={
+          score === null
+            ? "mt-2 text-xl font-semibold text-neutral-500"
+            : "mt-2 text-xl font-semibold text-white"
+        }
+      >
+        {formatScoreValue(score)}
+      </dd>
+      <dd className="mt-2 text-xs leading-5 text-neutral-500">
+        {layer?.explanation.summary ??
+          "Layer explanation is unavailable in the stored snapshot."}
+      </dd>
+    </div>
+  );
+}
+
+function StockScoreRuleGroup({
+  currency,
+  layer,
+}: {
+  currency: string;
+  layer: ScoreLayerResult;
+}) {
+  return (
+    <div>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-neutral-100">
+            {formatLayerName(layer.id)} rules
+          </h3>
+          <p className="mt-1 text-sm leading-6 text-neutral-500">
+            {layer.explanation.detail ?? layer.explanation.summary}
+          </p>
+        </div>
+        <p className="text-sm text-neutral-500">
+          {layer.status === "scored" ? "Scored layer" : "Insufficient layer data"}
+        </p>
+      </div>
+      <div className="mt-3 grid gap-4 lg:grid-cols-2">
+        {layer.ruleChecks.map((rule) => (
+          <StockScoreRuleCard currency={currency} key={rule.id} rule={rule} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function StockScoreRuleCard({
+  currency,
+  rule,
+}: {
+  currency: string;
+  rule: RuleCheckResult;
+}) {
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-950 p-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h4 className="text-sm font-semibold text-neutral-100">
+            {rule.explanation.summary}
+          </h4>
+          {rule.explanation.detail ? (
+            <p className="mt-2 text-xs leading-5 text-neutral-500">
+              {rule.explanation.detail}
+            </p>
+          ) : null}
+        </div>
+        <span
+          className={`inline-flex h-7 w-fit shrink-0 items-center rounded-md border px-2.5 text-xs font-semibold ${getRuleStatusClassName(
+            rule.status,
+          )}`}
+        >
+          {formatRuleStatus(rule.status)}
+        </span>
+      </div>
+
+      <dl className="mt-4 grid gap-3 text-xs sm:grid-cols-2">
+        <div>
+          <dt className="text-neutral-500">Measured value</dt>
+          <dd className="mt-1 font-medium text-neutral-100">
+            {formatMeasuredValue({
+              currency,
+              measuredValue: rule.measuredValue,
+              threshold: rule.threshold,
+            })}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-neutral-500">Threshold</dt>
+          <dd className="mt-1 font-medium text-neutral-100">
+            {formatThreshold({ currency, rule })}
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-3 text-xs leading-5 text-neutral-500">
+        {getMeasuredValueMeta(rule.measuredValue)}
+      </p>
+    </div>
+  );
+}
+
 function FundamentalMetricGroup({
   currency,
   metrics,
@@ -1396,6 +1813,8 @@ export async function StockDetailPage({
   let historicalPriceChartPoints: HistoricalPriceChartPoint[] = [];
   let latestFundamentals: StockFundamentalInput | null = null;
   let latestFundamentalsLoadError: string | undefined;
+  let latestStockScore: StockScoreRow | null = null;
+  let latestStockScoreLoadError: string | undefined;
   const defaultPortfolioResult = await ensureDefaultPortfolio(
     supabase,
     authenticatedUser,
@@ -1483,6 +1902,24 @@ export async function StockDetailPage({
       logStockDetailLoadError({
         error: latestFundamentalsLoadError,
         scope: "cached fundamentals",
+        symbol,
+      });
+
+      const latestStockScoreResult = await supabase
+        .from("stock_scores")
+        .select(
+          "id,symbol,scored_at,valuation_score,quality_score,safety_score,market_context_score,overall_label,explanation_json",
+        )
+        .eq("symbol", symbol)
+        .order("scored_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      latestStockScore = latestStockScoreResult.data;
+      latestStockScoreLoadError = latestStockScoreResult.error?.message;
+      logStockDetailLoadError({
+        error: latestStockScoreLoadError,
+        scope: "cached Graham score",
         symbol,
       });
     }
@@ -1676,6 +2113,11 @@ export async function StockDetailPage({
                 currency={stock.currency}
                 loadError={latestFundamentalsLoadError}
                 summary={fundamentalsSummary}
+              />
+              <StockScoreSnapshotSection
+                currency={stock.currency}
+                loadError={latestStockScoreLoadError}
+                snapshot={latestStockScore}
               />
               <CachedRangeCard
                 currency={stock.currency}

@@ -14,6 +14,7 @@ type PortfolioRow = Database["public"]["Tables"]["portfolios"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockFundamentalRow =
   Database["public"]["Tables"]["stock_fundamentals"]["Row"];
+type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
 type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
 
@@ -45,6 +46,7 @@ type StockDetailFixture = {
   portfolio?: Pick<PortfolioRow, "base_currency" | "id" | "name"> | null;
   queryFilters?: QueryFilter[];
   stock?: StockRow | null;
+  stockScore?: StockScoreRow | null;
   user?: { email?: string | null; id: string } | null;
   watchlistItem?: Pick<
     WatchlistItemRow,
@@ -121,6 +123,175 @@ const watchlistItem = {
   id: "watchlist-1",
   notes: "Wait for a better entry.",
   target_price: "180",
+};
+
+const stockScore: StockScoreRow = {
+  explanation_json: {
+    input: {},
+    result: {
+      explanation: {
+        caution:
+          "This deterministic label is educational context from cached data, not personalised financial advice.",
+        dominantRules: [],
+        layerSummaries: {
+          market_context: {
+            summary: "Market context has mixed cached price signals.",
+          },
+          quality: {
+            summary: "Quality has positive cached profitability inputs.",
+          },
+          safety: {
+            summary: "Safety has one cached metric to review.",
+          },
+          valuation: {
+            summary: "Valuation is mixed against the stored Graham thresholds.",
+          },
+        },
+        summary:
+          "Your rules suggest a Watch label from the latest cached score snapshot.",
+      },
+      label: "Watch",
+      layers: {
+        market_context: {
+          explanation: {
+            detail: "Cached movement data is partial.",
+            summary: "Market context has mixed cached price signals.",
+          },
+          id: "market_context",
+          ruleChecks: [
+            {
+              explanation: {
+                summary: "One-month movement may indicate a near-term review point.",
+              },
+              id: "market_context.one_month_movement",
+              measuredValue: {
+                availability: "available",
+                asOfDate: "2026-06-05",
+                freshness: "fresh",
+                source: "derived_metric",
+                value: 12,
+              },
+              status: "warning",
+              threshold: {
+                label: "One-month movement review band",
+                operator: "below_or_equal",
+                unit: "percent",
+                value: 10,
+              },
+            },
+          ],
+          score: 50,
+          status: "scored",
+        },
+        quality: {
+          explanation: {
+            detail: "Cached profitability is positive.",
+            summary: "Quality has positive cached profitability inputs.",
+          },
+          id: "quality",
+          ruleChecks: [
+            {
+              explanation: {
+                summary: "EPS passes the positive profitability check.",
+              },
+              id: "quality.positive_eps",
+              measuredValue: {
+                availability: "available",
+                asOfDate: "2025 FY",
+                freshness: "unknown",
+                source: "cached_fundamentals",
+                value: 6.1,
+              },
+              status: "pass",
+              threshold: {
+                label: "Positive EPS",
+                operator: "above",
+                unit: "currency",
+                value: 0,
+              },
+            },
+          ],
+          score: 100,
+          status: "scored",
+        },
+        safety: {
+          explanation: {
+            detail: "Some cached safety inputs are incomplete.",
+            summary: "Safety has one cached metric to review.",
+          },
+          id: "safety",
+          ruleChecks: [
+            {
+              explanation: {
+                detail: "Current ratio is missing in cached fundamentals.",
+                summary: "Current ratio is unavailable in cached fundamentals.",
+              },
+              id: "safety.current_ratio",
+              measuredValue: {
+                availability: "missing",
+                asOfDate: "2025 FY",
+                freshness: "unknown",
+                reason: "Current ratio is missing in cached fundamentals.",
+                source: "cached_fundamentals",
+                value: null,
+              },
+              status: "unavailable",
+              threshold: {
+                label: "Minimum current ratio",
+                operator: "above_or_equal",
+                unit: "ratio",
+                value: 1.5,
+              },
+            },
+          ],
+          score: null,
+          status: "insufficient_data",
+        },
+        valuation: {
+          explanation: {
+            detail: "Cached valuation checks are mixed.",
+            summary: "Valuation is mixed against the stored Graham thresholds.",
+          },
+          id: "valuation",
+          ruleChecks: [
+            {
+              explanation: {
+                summary: "P/E ratio is above the default Graham valuation threshold.",
+              },
+              id: "valuation.pe_ratio",
+              measuredValue: {
+                availability: "available",
+                asOfDate: "2025 FY",
+                freshness: "unknown",
+                source: "cached_fundamentals",
+                value: 29.1,
+              },
+              status: "fail",
+              threshold: {
+                label: "Maximum P/E ratio",
+                operator: "below_or_equal",
+                unit: "ratio",
+                value: 20,
+              },
+            },
+          ],
+          score: 67,
+          status: "scored",
+        },
+      },
+      scoredAt: "2026-06-06T09:00:00.000Z",
+      symbol: "AAPL",
+    },
+    schemaVersion: 1,
+  },
+  id: "score-1",
+  market_context_score: 50,
+  overall_label: "Watch",
+  quality_score: 100,
+  safety_score: null,
+  scored_at: "2026-06-06T09:00:00.000Z",
+  symbol: "AAPL",
+  valuation_score: 67,
 };
 
 describe("StockDetailPage", () => {
@@ -206,6 +377,59 @@ describe("StockDetailPage", () => {
     expect(html).toContain("$527.50");
     expect(html).toContain("Portfolio %");
     expect(html).toContain("95.3%");
+  });
+
+  it("renders the latest deterministic Graham score snapshot with traceable rule states", async () => {
+    const html = await renderPage({
+      fundamentals: [fundamentals],
+      historicalPrices: [latestPrice],
+      latestPrice,
+      stock,
+      stockScore,
+    });
+
+    expect(html).toContain("Graham-inspired score");
+    expect(html).toContain("Overall deterministic label");
+    expect(html).toContain("Watch");
+    expect(html).toContain(
+      "Your rules suggest a Watch label from the latest cached score snapshot.",
+    );
+    expect(html).toContain("Valuation");
+    expect(html).toContain("67/100");
+    expect(html).toContain("Quality");
+    expect(html).toContain("100/100");
+    expect(html).toContain("Safety");
+    expect(html).toContain("Insufficient data");
+    expect(html).toContain(
+      "P/E ratio is above the default Graham valuation threshold.",
+    );
+    expect(html).toContain("EPS passes the positive profitability check.");
+    expect(html).toContain("Current ratio is unavailable in cached fundamentals.");
+    expect(html).toContain(
+      "One-month movement may indicate a near-term review point.",
+    );
+    expect(html).toContain("Fail");
+    expect(html).toContain("Pass");
+    expect(html).toContain("Warning");
+    expect(html).toContain("Unavailable");
+    expect(html).toContain("Maximum P/E ratio &lt;= 20");
+    expect(html).not.toMatch(/\b(buy|sell)\b/i);
+  });
+
+  it("renders an explicit unavailable state when no score snapshot exists", async () => {
+    const html = await renderPage({
+      fundamentals: [fundamentals],
+      historicalPrices: [latestPrice],
+      latestPrice,
+      stock,
+      stockScore: null,
+    });
+
+    expect(html).toContain("Graham-inspired score");
+    expect(html).toContain("Score snapshot unavailable");
+    expect(html).toContain(
+      "No cached deterministic score snapshot exists for this stock yet.",
+    );
   });
 
   it("renders unknown cached-symbol handling without inventing stock data", async () => {
@@ -471,6 +695,10 @@ function resolveFixtureQuery(
 
   if (table === "stock_fundamentals") {
     return result(fixture.fundamentals ?? []);
+  }
+
+  if (table === "stock_scores") {
+    return result(fixture.stockScore ?? null);
   }
 
   if (table === "portfolio_cash") {
