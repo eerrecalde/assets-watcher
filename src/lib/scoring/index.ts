@@ -4,3 +4,4 @@ export * from "./quality";
 export * from "./safety";
 export * from "./valuation";
 export * from "./market-context";
+export * from "./stock";

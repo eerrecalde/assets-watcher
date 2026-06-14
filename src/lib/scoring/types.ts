@@ -138,8 +138,16 @@ export type StockScoringInput = {
   valuation: StockValuationScoringInput;
 };
 
+export type StockLabelReason = {
+  layerId: StockScoreLayerId;
+  ruleId: string;
+  status: RuleCheckStatus;
+  summary: string;
+};
+
 export type StockScoringExplanation = {
   caution: string;
+  dominantRules: StockLabelReason[];
   layerSummaries: Record<StockScoreLayerId, RuleExplanation>;
   summary: string;
 };
