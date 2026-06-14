@@ -5,3 +5,4 @@ export * from "./safety";
 export * from "./valuation";
 export * from "./market-context";
 export * from "./stock";
+export * from "./stock-score-snapshots";
