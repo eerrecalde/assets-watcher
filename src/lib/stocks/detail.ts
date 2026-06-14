@@ -270,14 +270,17 @@ export function createCachedFiftyTwoWeekRange(
     usableRows[0].priceDate,
   );
   const requiredStartDate = getTrailingFiftyTwoWeekStartDate(endDate);
+  const windowRows = usableRows.filter(
+    (row) => row.priceDate >= requiredStartDate && row.priceDate <= endDate,
+  );
 
   return {
     hasFullWindow: startDate <= requiredStartDate,
-    high: Math.max(...usableRows.map((row) => row.high)),
-    low: Math.min(...usableRows.map((row) => row.low)),
+    high: Math.max(...windowRows.map((row) => row.high)),
+    low: Math.min(...windowRows.map((row) => row.low)),
     requiredStartDate,
-    rowCount: usableRows.length,
-    startDate,
+    rowCount: windowRows.length,
+    startDate: windowRows[0].priceDate,
     endDate,
   };
 }
