@@ -432,6 +432,33 @@ describe("StockDetailPage", () => {
     );
   });
 
+  it("renders an insufficient-data score snapshot with cautious educational copy", async () => {
+    const html = await renderPage({
+      fundamentals: [],
+      historicalPrices: [],
+      latestPrice: null,
+      stock,
+      stockScore: createInsufficientDataStockScore(),
+    });
+
+    expect(html).toContain("Overall deterministic label");
+    expect(html).toContain("Insufficient Data");
+    expect(html).toContain(
+      "There is not enough cached data to score this stock.",
+    );
+    expect(html).toContain(
+      "This deterministic label is educational context from cached data, not personalised financial advice.",
+    );
+    expect(html).toContain("Valuation");
+    expect(html).toContain("Quality");
+    expect(html).toContain("Safety");
+    expect(html).toContain("Market context");
+    expect(html).toContain("Layer needs more cached data.");
+    expect(html).toContain("Unavailable");
+    expect(html).toContain("No cached fundamentals are available.");
+    expect(html).not.toMatch(/\b(buy|sell|you should|guaranteed)\b/i);
+  });
+
   it("renders unknown cached-symbol handling without inventing stock data", async () => {
     const html = await renderPage({
       stock: null,
@@ -602,6 +629,92 @@ function createDependencies(
     redirectToLogin: vi.fn((url: string): never => {
       throw new Error(`redirect:${url}`);
     }),
+  };
+}
+
+function createInsufficientDataStockScore(): StockScoreRow {
+  return {
+    ...stockScore,
+    explanation_json: {
+      input: {},
+      result: {
+        explanation: {
+          caution:
+            "This deterministic label is educational context from cached data, not personalised financial advice.",
+          dominantRules: [
+            {
+              layerId: "valuation",
+              ruleId: "valuation.pe_ratio",
+              status: "unavailable",
+              summary: "No cached fundamentals are available.",
+            },
+          ],
+          layerSummaries: {
+            market_context: {
+              summary: "Layer needs more cached data.",
+            },
+            quality: {
+              summary: "Layer needs more cached data.",
+            },
+            safety: {
+              summary: "Layer needs more cached data.",
+            },
+            valuation: {
+              summary: "Layer needs more cached data.",
+            },
+          },
+          summary: "There is not enough cached data to score this stock.",
+        },
+        label: "Insufficient Data",
+        layers: {
+          market_context: createUnavailableScoreLayer("market_context"),
+          quality: createUnavailableScoreLayer("quality"),
+          safety: createUnavailableScoreLayer("safety"),
+          valuation: createUnavailableScoreLayer("valuation"),
+        },
+        scoredAt: "2026-06-06T09:00:00.000Z",
+        symbol: "AAPL",
+      },
+      schemaVersion: 1,
+    },
+    market_context_score: null,
+    overall_label: "Insufficient Data",
+    quality_score: null,
+    safety_score: null,
+    valuation_score: null,
+  };
+}
+
+function createUnavailableScoreLayer(
+  id: "market_context" | "quality" | "safety" | "valuation",
+) {
+  return {
+    explanation: {
+      detail: "No cached inputs are available for this scoring layer.",
+      summary: "Layer needs more cached data.",
+    },
+    id,
+    ruleChecks: [
+      {
+        explanation: {
+          detail: "No cached fundamentals are available.",
+          summary: "No cached fundamentals are available.",
+        },
+        id: `${id}.missing_cached_data`,
+        measuredValue: {
+          availability: "missing",
+          asOfDate: null,
+          freshness: "unknown",
+          reason: "No cached fundamentals are available.",
+          source: id === "market_context" ? "cached_price" : "cached_fundamentals",
+          value: null,
+        },
+        status: "unavailable",
+        threshold: null,
+      },
+    ],
+    score: null,
+    status: "insufficient_data",
   };
 }
 
