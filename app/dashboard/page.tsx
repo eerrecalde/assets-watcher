@@ -8,6 +8,7 @@ import {
   calculateHoldingValue,
   calculatePositionAllocation,
   calculatePortfolioTotals,
+  calculateSectorAllocations,
   toFiniteNumber,
 } from "@/lib/portfolios/totals";
 import { createClient } from "@/lib/supabase/server";
@@ -136,10 +137,10 @@ export default async function DashboardPage() {
   const stocksResult = symbols.length
     ? await supabase
         .from("stocks")
-        .select("symbol,name,currency")
+        .select("symbol,name,currency,sector")
         .in("symbol", symbols)
     : {
-        data: [] as Pick<StockRow, "currency" | "name" | "symbol">[],
+        data: [] as Pick<StockRow, "currency" | "name" | "sector" | "symbol">[],
         error: null,
       };
   const pricesResult = symbols.length
@@ -221,6 +222,7 @@ export default async function DashboardPage() {
         latestStockScoresBySymbol.get(holding.symbol)?.overall_label ??
         "Insufficient Data",
       stockName: stocksBySymbol.get(holding.symbol)?.name ?? holding.symbol,
+      sector: stocksBySymbol.get(holding.symbol)?.sector ?? null,
     };
   });
   const portfolioTotals = calculatePortfolioTotals(
@@ -228,6 +230,10 @@ export default async function DashboardPage() {
     cashResult.data?.amount,
   );
   const cashAmountValue = cashResult.data?.amount;
+  const sectorAllocations = calculateSectorAllocations({
+    cashAmountInput: cashAmountValue,
+    holdings: enrichedHoldings,
+  });
   const hasHoldingsLoadError =
     Boolean(holdingsResult.error) ||
     Boolean(stocksResult.error) ||
@@ -360,6 +366,93 @@ export default async function DashboardPage() {
               </p>
             </article>
           </div>
+
+          <section className="border-t border-neutral-800 pt-8">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">
+                  Sector allocation
+                </h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+                  Exposure by cached stock sector using current cached market
+                  values and cash in the allocation denominator.
+                </p>
+              </div>
+              {sectorAllocations.some(
+                (allocation) => allocation.status === "partial-market-data",
+              ) ? (
+                <p className="text-sm text-amber-300">Partial market data</p>
+              ) : null}
+            </div>
+
+            {hasHoldingsLoadError ? (
+              <p className="mt-6 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+                Sector allocation could not be fully loaded.
+              </p>
+            ) : null}
+
+            {sectorAllocations.length ? (
+              <div className="mt-5 overflow-x-auto rounded-lg border border-neutral-800">
+                <table className="min-w-[44rem] w-full border-collapse text-left text-sm">
+                  <thead className="bg-neutral-900 text-xs uppercase tracking-[0.14em] text-neutral-400">
+                    <tr>
+                      <th className="px-4 py-3 font-medium">Sector</th>
+                      <th className="px-4 py-3 font-medium">Holdings</th>
+                      <th className="px-4 py-3 font-medium">Cached value</th>
+                      <th className="px-4 py-3 font-medium">Portfolio %</th>
+                      <th className="px-4 py-3 font-medium">Data state</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-800">
+                    {sectorAllocations.map((allocation) => (
+                      <tr className="bg-neutral-950" key={allocation.sector}>
+                        <td className="px-4 py-4 align-top text-neutral-200">
+                          {allocation.sector}
+                        </td>
+                        <td className="px-4 py-4 align-top text-neutral-300">
+                          {allocation.holdingCount}
+                        </td>
+                        <td className="px-4 py-4 align-top text-neutral-300">
+                          {allocation.numeratorMarketValue > 0
+                            ? formatCurrency(
+                                allocation.numeratorMarketValue,
+                                displayCurrency,
+                              )
+                            : "Not cached"}
+                        </td>
+                        <td className="px-4 py-4 align-top text-neutral-300">
+                          {allocation.percentage === null
+                            ? "Not cached"
+                            : `${formatNumber(allocation.percentage, 2)}%`}
+                        </td>
+                        <td className="px-4 py-4 align-top">
+                          <span
+                            className={
+                              allocation.status === "calculated"
+                                ? "text-emerald-200"
+                                : allocation.status === "partial-market-data"
+                                  ? "text-amber-300"
+                                  : "text-neutral-400"
+                            }
+                          >
+                            {allocation.status === "calculated"
+                              ? "Calculated"
+                              : allocation.status === "partial-market-data"
+                                ? "Partial data"
+                                : "Insufficient data"}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <p className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-400">
+                No sector exposure yet.
+              </p>
+            )}
+          </section>
 
           <section className="border-t border-neutral-800 pt-8">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
