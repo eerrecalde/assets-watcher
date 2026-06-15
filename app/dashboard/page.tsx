@@ -6,6 +6,7 @@ import { signOutAction } from "@/lib/auth/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import {
   calculateHoldingValue,
+  calculatePositionAllocation,
   calculatePortfolioTotals,
   toFiniteNumber,
 } from "@/lib/portfolios/totals";
@@ -226,6 +227,7 @@ export default async function DashboardPage() {
     enrichedHoldings,
     cashResult.data?.amount,
   );
+  const cashAmountValue = cashResult.data?.amount;
   const hasHoldingsLoadError =
     Boolean(holdingsResult.error) ||
     Boolean(stocksResult.error) ||
@@ -404,12 +406,11 @@ export default async function DashboardPage() {
                   </thead>
                   <tbody className="divide-y divide-neutral-800">
                     {enrichedHoldings.map((row) => {
-                      const allocation =
-                        portfolioTotals.totalPortfolioValue > 0
-                          ? (row.portfolioValue /
-                              portfolioTotals.totalPortfolioValue) *
-                            100
-                          : null;
+                      const allocation = calculatePositionAllocation({
+                        cashAmountInput: cashAmountValue,
+                        holding: row,
+                        holdings: enrichedHoldings,
+                      });
 
                       return (
                         <tr className="bg-neutral-950" key={row.holding.id}>
@@ -465,9 +466,16 @@ export default async function DashboardPage() {
                             )}
                           </td>
                           <td className="px-4 py-4 align-top text-neutral-300">
-                            {allocation === null
-                              ? "Not cached"
-                              : `${formatNumber(allocation, 2)}%`}
+                            <div>
+                              {allocation.percentage === null
+                                ? "Not cached"
+                                : `${formatNumber(allocation.percentage, 2)}%`}
+                            </div>
+                            {allocation.status === "partial-market-data" ? (
+                              <div className="mt-1 text-xs text-amber-300">
+                                Partial data
+                              </div>
+                            ) : null}
                           </td>
                           <td className="px-4 py-4 align-top text-neutral-300">
                             {row.stockLabel}

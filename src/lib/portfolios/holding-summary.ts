@@ -1,7 +1,9 @@
 import {
   calculateHoldingValue,
+  calculatePositionAllocation,
   type CalculatedHoldingValue,
   type NumericInput,
+  type PositionAllocationResult,
 } from "./totals";
 
 export type HoldingSummaryInput = {
@@ -20,6 +22,7 @@ export type OwnedHoldingSummary = CalculatedHoldingValue & {
   currency: string;
   hasSufficientPriceData: boolean;
   latestPriceDate: string | null;
+  positionAllocation: PositionAllocationResult;
   portfolioPercentage: number | null;
   status: "owned";
 };
@@ -29,31 +32,32 @@ export type UserHoldingSummary =
   | OwnedHoldingSummary;
 
 export function buildUserHoldingSummary({
+  cashAmount,
   holding,
-  totalPortfolioValue,
+  portfolioHoldings,
 }: {
+  cashAmount: NumericInput;
   holding: HoldingSummaryInput | null;
-  totalPortfolioValue: NumericInput;
+  portfolioHoldings: CalculatedHoldingValue[];
 }): UserHoldingSummary {
   if (!holding) {
     return { status: "not-owned" };
   }
 
   const calculatedValue = calculateHoldingValue(holding);
-  const totalValue = Number(totalPortfolioValue);
-  const portfolioPercentage =
-    calculatedValue.marketValue !== null &&
-    Number.isFinite(totalValue) &&
-    totalValue > 0
-      ? (calculatedValue.marketValue / totalValue) * 100
-      : null;
+  const positionAllocation = calculatePositionAllocation({
+    cashAmountInput: cashAmount,
+    holding: calculatedValue,
+    holdings: portfolioHoldings,
+  });
 
   return {
     ...calculatedValue,
     currency: holding.currency,
     hasSufficientPriceData: calculatedValue.marketValue !== null,
     latestPriceDate: holding.latestPriceDate ?? null,
-    portfolioPercentage,
+    positionAllocation,
+    portfolioPercentage: positionAllocation.percentage,
     status: "owned",
   };
 }

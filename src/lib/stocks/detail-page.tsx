@@ -38,7 +38,6 @@ import {
 } from "../portfolios/holding-summary";
 import {
   calculateHoldingValue,
-  calculatePortfolioTotals,
 } from "../portfolios/totals";
 import type { Database } from "../../types/supabase";
 import type {
@@ -770,6 +769,11 @@ function UserHoldingSummarySection({
             />
             <HoldingMetric
               label="Portfolio %"
+              subtext={
+                summary.positionAllocation.status === "partial-market-data"
+                  ? "Partial data"
+                  : undefined
+              }
               value={formatPercentage(summary.portfolioPercentage)}
             />
           </dl>
@@ -1998,10 +2002,6 @@ export async function StockDetailPage({
       holding,
     };
   });
-  const portfolioTotals = calculatePortfolioTotals(
-    enrichedHoldings,
-    cashResult.data?.amount,
-  );
   const selectedHolding =
     isValidSymbol && portfolio
       ? holdings.find((holding) => holding.symbol === symbol) ?? null
@@ -2032,6 +2032,7 @@ export async function StockDetailPage({
   const selectedLatestPrice = latestPricesBySymbol.get(symbol);
   const holdingSummary = portfolio
     ? buildUserHoldingSummary({
+        cashAmount: cashResult.data?.amount,
         holding: selectedHolding
           ? {
               averageCost: selectedHolding.average_cost,
@@ -2041,7 +2042,7 @@ export async function StockDetailPage({
               quantity: selectedHolding.quantity,
             }
           : null,
-        totalPortfolioValue: portfolioTotals.totalPortfolioValue,
+        portfolioHoldings: enrichedHoldings,
       })
     : null;
   const hasHoldingLoadError =
