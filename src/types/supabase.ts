@@ -508,7 +508,8 @@ export type Database = {
         | "Concentration Risk"
         | "Cash Constrained"
         | "Do Not Add"
-        | "Review Position";
+        | "Review Position"
+        | "Insufficient Data";
       stock_label:
         | "Attractive"
         | "Reasonable"

@@ -7,3 +7,4 @@ export * from "./market-context";
 export * from "./stock";
 export * from "./stock-score-snapshots";
 export * from "./portfolio-fit";
+export * from "./portfolio-score-snapshots";
