@@ -15,6 +15,7 @@ describe("DEFAULT_GRAHAM_SCORING_THRESHOLDS", () => {
       maxPe: 20,
       maxSectorAllocationPercent: 30,
       maxSingleStockAllocationPercent: 10,
+      minCashAllocationPercent: 5,
       minCurrentRatio: 1.5,
       minMarginOfSafetyPercent: 25,
     });
@@ -42,6 +43,7 @@ describe("scoring label contracts", () => {
       "Cash Constrained",
       "Do Not Add",
       "Review Position",
+      "Insufficient Data",
     ]);
   });
 

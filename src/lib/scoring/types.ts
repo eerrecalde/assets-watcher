@@ -38,7 +38,8 @@ export type PortfolioFitLabel =
   | "Concentration Risk"
   | "Cash Constrained"
   | "Do Not Add"
-  | "Review Position";
+  | "Review Position"
+  | "Insufficient Data";
 
 export type StockScoreLayerId =
   | "valuation"

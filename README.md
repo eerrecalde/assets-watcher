@@ -191,10 +191,11 @@ Default deterministic Graham thresholds currently mirror the product plan:
 - Minimum margin of safety: `25%`
 - Minimum current ratio: `1.5`
 - Maximum debt/equity: `1.0`
-- Maximum single-stock allocation: `10%` for later portfolio-fit scoring
-- Maximum sector allocation: `30%` for later portfolio-fit scoring
+- Maximum single-stock allocation: `10%` for portfolio-fit scoring
+- Maximum sector allocation: `30%` for portfolio-fit scoring
+- Minimum cash allocation: `5%` for portfolio-fit cash warnings until user rules are configurable
 
-Scoring depends only on cached local data. Valuation needs cached fundamentals such as EPS, book value per share, P/E, and P/B plus a latest cached close price to derive Graham Number and margin of safety. Quality needs cached profitability inputs such as EPS, net income, free cash flow, and revenue. Safety needs cached current ratio, debt/equity, free cash flow, total debt, and total equity. Market context needs cached daily price history for movement, range, and moving-average context. Missing values remain missing, stale prices are marked as stale historical context, and unavailable or insufficient inputs are excluded from pass/fail scoring instead of being converted to zero.
+Scoring depends only on cached local data. Valuation needs cached fundamentals such as EPS, book value per share, P/E, and P/B plus a latest cached close price to derive Graham Number and margin of safety. Quality needs cached profitability inputs such as EPS, net income, free cash flow, and revenue. Safety needs cached current ratio, debt/equity, free cash flow, total debt, and total equity. Market context needs cached daily price history for movement, range, and moving-average context. Portfolio-fit scoring consumes deterministic position, sector, and cash allocation inputs and returns `Underweight`, `Balanced`, `Overweight`, `Concentration Risk`, `Cash Constrained`, `Do Not Add`, `Review Position`, or `Insufficient Data` with rule-level warnings. Missing values remain missing, stale prices are marked as stale historical context, and unavailable or insufficient inputs are excluded from pass/fail scoring instead of being converted to zero.
 
 When critical cached inputs are unavailable, the scorer returns explicit insufficient-data states and preserves rule-level reasons in score snapshots. Stock detail pages render the latest stored deterministic snapshot, including layer scores, rule statuses, measured values, thresholds, cached-data source, as-of date, and unavailable reasons where present. If no snapshot exists, the UI says the score snapshot is unavailable rather than inventing a label.
 
