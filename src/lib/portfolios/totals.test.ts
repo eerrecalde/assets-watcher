@@ -3,8 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   calculateHoldingValue,
   calculatePositionAllocation,
+  calculateSectorAllocations,
   calculatePortfolioTotals,
   toFiniteNumber,
+  UNKNOWN_SECTOR_NAME,
 } from "./totals";
 
 describe("toFiniteNumber", () => {
@@ -270,5 +272,215 @@ describe("calculatePositionAllocation", () => {
       reason: "invalid_portfolio_inputs",
       status: "partial-market-data",
     });
+  });
+});
+
+describe("calculateSectorAllocations", () => {
+  it("calculates sector percentages from cached market values and cash denominator", () => {
+    const holdings = [
+      {
+        ...calculateHoldingValue({
+          averageCost: "100",
+          latestClose: "120",
+          quantity: "10",
+        }),
+        sector: "Technology",
+      },
+      {
+        ...calculateHoldingValue({
+          averageCost: "20",
+          latestClose: "30",
+          quantity: "5",
+        }),
+        sector: "Consumer Defensive",
+      },
+      {
+        ...calculateHoldingValue({
+          averageCost: "10",
+          latestClose: "15",
+          quantity: "10",
+        }),
+        sector: "Technology",
+      },
+    ];
+
+    expect(
+      calculateSectorAllocations({
+        cashAmountInput: "300",
+        holdings,
+      }),
+    ).toEqual([
+      {
+        cashAmount: 300,
+        cashStatus: "included",
+        denominatorValue: 1800,
+        holdingCount: 2,
+        includesCash: true,
+        invalidMarketValueCount: 0,
+        isUnknownSector: false,
+        missingMarketValueCount: 0,
+        numeratorMarketValue: 1350,
+        percentage: 75,
+        pricedHoldingCount: 2,
+        reason: "calculated_from_cached_market_values_and_cash",
+        sector: "Technology",
+        status: "calculated",
+        totalHoldingCount: 3,
+      },
+      {
+        cashAmount: 300,
+        cashStatus: "included",
+        denominatorValue: 1800,
+        holdingCount: 1,
+        includesCash: true,
+        invalidMarketValueCount: 0,
+        isUnknownSector: false,
+        missingMarketValueCount: 0,
+        numeratorMarketValue: 150,
+        percentage: 8.333333333333332,
+        pricedHoldingCount: 1,
+        reason: "calculated_from_cached_market_values_and_cash",
+        sector: "Consumer Defensive",
+        status: "calculated",
+        totalHoldingCount: 3,
+      },
+    ]);
+  });
+
+  it("groups missing or blank sector metadata into an unknown bucket", () => {
+    const holdings = [
+      {
+        ...calculateHoldingValue({
+          averageCost: "100",
+          latestClose: "125",
+          quantity: "2",
+        }),
+        sector: null,
+      },
+      {
+        ...calculateHoldingValue({
+          averageCost: "50",
+          latestClose: "50",
+          quantity: "3",
+        }),
+        sector: "   ",
+      },
+    ];
+
+    expect(
+      calculateSectorAllocations({
+        cashAmountInput: "100",
+        holdings,
+      }),
+    ).toEqual([
+      {
+        cashAmount: 100,
+        cashStatus: "included",
+        denominatorValue: 500,
+        holdingCount: 2,
+        includesCash: true,
+        invalidMarketValueCount: 0,
+        isUnknownSector: true,
+        missingMarketValueCount: 0,
+        numeratorMarketValue: 400,
+        percentage: 80,
+        pricedHoldingCount: 2,
+        reason: "calculated_from_cached_market_values_and_cash",
+        sector: UNKNOWN_SECTOR_NAME,
+        status: "calculated",
+        totalHoldingCount: 2,
+      },
+    ]);
+  });
+
+  it("marks sector percentages as partial when another holding is missing a cached price", () => {
+    const holdings = [
+      {
+        ...calculateHoldingValue({
+          averageCost: "100",
+          latestClose: "120",
+          quantity: "10",
+        }),
+        sector: "Technology",
+      },
+      {
+        ...calculateHoldingValue({
+          averageCost: "20",
+          latestClose: null,
+          quantity: "5",
+        }),
+        sector: "Healthcare",
+      },
+    ];
+
+    expect(
+      calculateSectorAllocations({
+        cashAmountInput: "300",
+        holdings,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        denominatorValue: 1500,
+        missingMarketValueCount: 0,
+        percentage: 80,
+        reason: "calculated_from_partial_cached_market_values_and_cash",
+        sector: "Technology",
+        status: "partial-market-data",
+      }),
+      expect.objectContaining({
+        denominatorValue: 1500,
+        missingMarketValueCount: 1,
+        numeratorMarketValue: 0,
+        percentage: null,
+        reason: "missing_cached_market_value",
+        sector: "Healthcare",
+        status: "insufficient-data",
+      }),
+    ]);
+  });
+
+  it("does not let zero or negative market values produce misleading sector percentages", () => {
+    const holdings = [
+      {
+        ...calculateHoldingValue({
+          averageCost: "100",
+          latestClose: "-10",
+          quantity: "2",
+        }),
+        sector: "Technology",
+      },
+      {
+        ...calculateHoldingValue({
+          averageCost: "50",
+          latestClose: "75",
+          quantity: "2",
+        }),
+        sector: "Healthcare",
+      },
+    ];
+
+    expect(
+      calculateSectorAllocations({
+        cashAmountInput: "-25",
+        holdings,
+      }),
+    ).toEqual([
+      expect.objectContaining({
+        cashStatus: "invalid",
+        denominatorValue: 150,
+        percentage: 100,
+        reason: "invalid_portfolio_inputs",
+        sector: "Healthcare",
+        status: "partial-market-data",
+      }),
+      expect.objectContaining({
+        invalidMarketValueCount: 1,
+        numeratorMarketValue: 0,
+        percentage: null,
+        reason: "non_positive_sector_market_value",
+        sector: "Technology",
+        status: "insufficient-data",
+      }),
+    ]);
   });
 });
