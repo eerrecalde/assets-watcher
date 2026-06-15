@@ -133,6 +133,8 @@ describe("DashboardPage", () => {
 
     expect(html).toContain("Holdings");
     expect(html).toContain("Current owned positions");
+    expect(html).toContain("Cash allocation");
+    expect(html).toContain("62.5%");
     expect(html).toContain('href="/stocks/MSFT"');
     expect(html).toContain("Microsoft Corporation");
     expect(html).toContain("Watchlist");

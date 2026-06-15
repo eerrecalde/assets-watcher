@@ -26,13 +26,15 @@ Sector allocation uses the same denominator and market-value rules as position a
 
 Holdings with missing, blank, or otherwise unavailable sector metadata are grouped into an explicit `Unknown / Insufficient Data` sector bucket. If a sector bucket has no positive cached market value because all of its holdings are missing prices or have zero or negative market values, that bucket is returned with `insufficient-data` and a `null` percentage instead of a misleading zero allocation.
 
+Cash allocation uses the same denominator. Its numerator is the stored non-negative cash amount in the portfolio base currency. All-cash portfolios return `100%`, priced portfolios with zero cash return `0%`, and portfolios with missing holding prices return a partial-data percentage against the known denominator. Empty zero-value portfolios and invalid negative cash return `insufficient-data` with a `null` percentage.
+
 ## Consequences
 
 Allocation percentages stay tied to current cached market value instead of mixing market value and cost basis.
 
 Partial market-data states remain visible to downstream explanations, so portfolio-aware scoring can avoid presenting incomplete allocation context as complete.
 
-All-cash, empty, missing-price, zero-value, and invalid negative-input states produce explicit metadata rather than misleading percentages.
+All-cash, no-cash, empty, missing-price, zero-value, and invalid negative-input states produce explicit metadata rather than misleading percentages.
 
 Unknown sector exposure remains visible to users and downstream scoring instead of being dropped from the allocation context.
 

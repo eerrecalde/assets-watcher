@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  calculateCashAllocation,
   calculateHoldingValue,
   calculatePositionAllocation,
   calculateSectorAllocations,
@@ -482,5 +483,143 @@ describe("calculateSectorAllocations", () => {
         status: "insufficient-data",
       }),
     ]);
+  });
+});
+
+describe("calculateCashAllocation", () => {
+  it("calculates cash percentage from stored cash and cached market values", () => {
+    const holdings = [
+      calculateHoldingValue({
+        averageCost: "100",
+        latestClose: "120",
+        quantity: "10",
+      }),
+      calculateHoldingValue({
+        averageCost: "20",
+        latestClose: "30",
+        quantity: "5",
+      }),
+    ];
+
+    expect(
+      calculateCashAllocation({
+        cashAmountInput: "150",
+        holdings,
+      }),
+    ).toEqual({
+      cashAmount: 150,
+      cashStatus: "included",
+      denominatorValue: 1500,
+      includesCash: true,
+      invalidMarketValueCount: 0,
+      missingMarketValueCount: 0,
+      numeratorCashAmount: 150,
+      percentage: 10,
+      pricedHoldingCount: 2,
+      reason: "calculated_from_cached_market_values_and_cash",
+      status: "calculated",
+      totalHoldingCount: 2,
+    });
+  });
+
+  it("returns zero percent for no-cash portfolios with priced holdings", () => {
+    const holdings = [
+      calculateHoldingValue({
+        averageCost: "50",
+        latestClose: "75",
+        quantity: "2",
+      }),
+    ];
+
+    expect(
+      calculateCashAllocation({
+        cashAmountInput: "0",
+        holdings,
+      }),
+    ).toMatchObject({
+      cashStatus: "zero",
+      denominatorValue: 150,
+      percentage: 0,
+      reason: "calculated_from_cached_market_values_and_cash",
+      status: "calculated",
+    });
+  });
+
+  it("returns one hundred percent for all-cash portfolios", () => {
+    expect(
+      calculateCashAllocation({
+        cashAmountInput: "500",
+        holdings: [],
+      }),
+    ).toMatchObject({
+      cashStatus: "included",
+      denominatorValue: 500,
+      percentage: 100,
+      reason: "calculated_from_cached_market_values_and_cash",
+      status: "calculated",
+      totalHoldingCount: 0,
+    });
+  });
+
+  it("marks cash allocation as partial when holdings have missing cached prices", () => {
+    const holdings = [
+      calculateHoldingValue({
+        averageCost: "100",
+        latestClose: null,
+        quantity: "10",
+      }),
+    ];
+
+    expect(
+      calculateCashAllocation({
+        cashAmountInput: "500",
+        holdings,
+      }),
+    ).toMatchObject({
+      denominatorValue: 500,
+      missingMarketValueCount: 1,
+      percentage: 100,
+      reason: "calculated_from_partial_cached_market_values_and_cash",
+      status: "partial-market-data",
+    });
+  });
+
+  it("returns insufficient data for empty zero-value portfolios", () => {
+    expect(
+      calculateCashAllocation({
+        cashAmountInput: "0",
+        holdings: [],
+      }),
+    ).toMatchObject({
+      cashStatus: "zero",
+      denominatorValue: 0,
+      percentage: null,
+      reason: "non_positive_allocation_denominator",
+      status: "insufficient-data",
+    });
+  });
+
+  it("does not calculate a cash percentage from invalid negative cash", () => {
+    const holdings = [
+      calculateHoldingValue({
+        averageCost: "50",
+        latestClose: "75",
+        quantity: "2",
+      }),
+    ];
+
+    expect(
+      calculateCashAllocation({
+        cashAmountInput: "-25",
+        holdings,
+      }),
+    ).toMatchObject({
+      cashStatus: "invalid",
+      denominatorValue: 150,
+      numeratorCashAmount: null,
+      percentage: null,
+      reason: "invalid_cash_amount",
+      status: "insufficient-data",
+    });
   });
 });

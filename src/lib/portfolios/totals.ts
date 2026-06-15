@@ -93,6 +93,30 @@ export type SectorAllocationResult = {
   totalHoldingCount: number;
 };
 
+export type CashAllocationStatus = PositionAllocationStatus;
+
+export type CashAllocationReason =
+  | "calculated_from_cached_market_values_and_cash"
+  | "calculated_from_partial_cached_market_values_and_cash"
+  | "invalid_cash_amount"
+  | "invalid_portfolio_inputs"
+  | "non_positive_allocation_denominator";
+
+export type CashAllocationResult = {
+  cashAmount: number;
+  cashStatus: PositionAllocationCashStatus;
+  denominatorValue: number;
+  includesCash: boolean;
+  invalidMarketValueCount: number;
+  missingMarketValueCount: number;
+  numeratorCashAmount: number | null;
+  percentage: number | null;
+  pricedHoldingCount: number;
+  reason: CashAllocationReason;
+  status: CashAllocationStatus;
+  totalHoldingCount: number;
+};
+
 export function toFiniteNumber(value: NumericInput) {
   if (value === null || value === undefined) {
     return null;
@@ -384,4 +408,60 @@ export function calculateSectorAllocations({
 
       return firstSector.sector.localeCompare(secondSector.sector);
     });
+}
+
+export function calculateCashAllocation({
+  cashAmountInput,
+  holdings,
+}: {
+  cashAmountInput: NumericInput;
+  holdings: Pick<CalculatedHoldingValue, "marketValue">[];
+}): CashAllocationResult {
+  const allocationContext = getAllocationDenominatorContext(
+    holdings,
+    cashAmountInput,
+  );
+  const baseResult = {
+    ...allocationContext,
+    numeratorCashAmount:
+      allocationContext.cashStatus === "invalid"
+        ? null
+        : allocationContext.cashAmount,
+    percentage: null,
+  } satisfies Omit<CashAllocationResult, "reason" | "status">;
+
+  if (allocationContext.cashStatus === "invalid") {
+    return {
+      ...baseResult,
+      reason: "invalid_cash_amount",
+      status: "insufficient-data",
+    };
+  }
+
+  if (allocationContext.denominatorValue <= 0) {
+    return {
+      ...baseResult,
+      reason: "non_positive_allocation_denominator",
+      status: "insufficient-data",
+    };
+  }
+
+  const hasPartialMarketData = allocationContext.missingMarketValueCount > 0;
+  const hasInvalidPortfolioInputs =
+    allocationContext.invalidMarketValueCount > 0;
+
+  return {
+    ...baseResult,
+    percentage:
+      (allocationContext.cashAmount / allocationContext.denominatorValue) * 100,
+    reason: hasInvalidPortfolioInputs
+      ? "invalid_portfolio_inputs"
+      : hasPartialMarketData
+        ? "calculated_from_partial_cached_market_values_and_cash"
+        : "calculated_from_cached_market_values_and_cash",
+    status:
+      hasPartialMarketData || hasInvalidPortfolioInputs
+        ? "partial-market-data"
+        : "calculated",
+  };
 }
