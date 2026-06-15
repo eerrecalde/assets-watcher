@@ -1,4 +1,5 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
@@ -41,6 +42,9 @@ import {
 } from "../portfolios/totals";
 import type { Database } from "../../types/supabase";
 import type {
+  PortfolioFitScoringResult,
+} from "../scoring/portfolio-fit";
+import type {
   RuleCheckResult,
   RuleCheckStatus,
   ScoringDataPoint,
@@ -59,6 +63,8 @@ type PortfolioRow = Database["public"]["Tables"]["portfolios"]["Row"];
 type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
+type PortfolioScoreRow =
+  Database["public"]["Tables"]["portfolio_stock_scores"]["Row"];
 type AppSupabaseClient = SupabaseClient<Database>;
 type RefreshStockDetailMarketDataAction = (
   formData: FormData,
@@ -550,6 +556,33 @@ function parseStockScoreSnapshotResult(
   }
 
   return result as unknown as StockScoringResult;
+}
+
+function parsePortfolioScoreSnapshotResult(
+  snapshot: Pick<PortfolioScoreRow, "explanation_json"> | null,
+) {
+  const value = snapshot?.explanation_json;
+
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const result = value.result;
+
+  if (!isRecord(result)) {
+    return null;
+  }
+
+  if (
+    typeof result.label !== "string" ||
+    typeof result.status !== "string" ||
+    !Array.isArray(result.ruleChecks) ||
+    !isRecord(result.explanation)
+  ) {
+    return null;
+  }
+
+  return result as unknown as PortfolioFitScoringResult;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1512,6 +1545,172 @@ function StockScoreSnapshotSection({
   );
 }
 
+function CombinedScoreContextSection({
+  portfolioLoadError,
+  portfolioSnapshot,
+  stockLoadError,
+  stockSnapshot,
+}: {
+  portfolioLoadError?: string;
+  portfolioSnapshot: PortfolioScoreRow | null;
+  stockLoadError?: string;
+  stockSnapshot: StockScoreRow | null;
+}) {
+  const stockScoringResult = parseStockScoreSnapshotResult(stockSnapshot);
+  const portfolioScoringResult =
+    parsePortfolioScoreSnapshotResult(portfolioSnapshot);
+  const stockLabel = stockSnapshot?.overall_label ?? null;
+  const portfolioFitLabel = portfolioSnapshot?.portfolio_fit_label ?? null;
+  const hasOffset =
+    isPositiveStockLabel(stockLabel) && isPortfolioFitOffset(portfolioFitLabel);
+
+  return (
+    <section className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-8">
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h2 className="text-lg font-semibold text-white">
+            Stock and portfolio context
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+            Combined deterministic labels keep stock-level checks separate from
+            portfolio-fit checks. They are educational context and not an
+            instruction to trade.
+          </p>
+        </div>
+        {stockSnapshot || portfolioSnapshot ? (
+          <p className="text-sm text-neutral-500">
+            Latest snapshots from cached scoring data
+          </p>
+        ) : null}
+      </div>
+
+      {stockLoadError || portfolioLoadError ? (
+        <div className="mt-5 grid gap-3">
+          {stockLoadError ? (
+            <p className="rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+              Cached stock score data could not be loaded.
+            </p>
+          ) : null}
+          {portfolioLoadError ? (
+            <p className="rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+              Cached portfolio-fit score data could not be loaded.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <div className="mt-6 grid gap-4 lg:grid-cols-2">
+        <ScoreContextCard
+          label={stockLabel}
+          missingTitle="Stock score unavailable"
+          scoredAt={stockSnapshot?.scored_at ?? null}
+          title="Stock label"
+        >
+          {stockScoringResult?.explanation.summary ??
+            "No cached deterministic stock score snapshot exists for this stock yet."}
+        </ScoreContextCard>
+        <ScoreContextCard
+          label={portfolioFitLabel}
+          missingTitle="Portfolio context unavailable"
+          scoredAt={portfolioSnapshot?.scored_at ?? null}
+          title="Portfolio fit"
+        >
+          {portfolioScoringResult?.explanation.summary ??
+            "No cached portfolio-fit score snapshot exists for this stock in your default portfolio yet."}
+        </ScoreContextCard>
+      </div>
+
+      {hasOffset ? (
+        <p className="mt-5 rounded-md border border-amber-900 bg-amber-950/40 px-4 py-3 text-sm leading-6 text-amber-100">
+          The stock label is positive, but the portfolio-fit label flags
+          allocation context that offsets adding more exposure.
+        </p>
+      ) : null}
+
+      {portfolioScoringResult ? (
+        <div className="mt-7">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold text-neutral-100">
+                Portfolio-fit rules
+              </h3>
+              <p className="mt-1 text-sm leading-6 text-neutral-500">
+                {portfolioScoringResult.explanation.caution}
+              </p>
+            </div>
+            <p className="text-sm text-neutral-500">
+              {portfolioScoringResult.status === "classified"
+                ? "Classified portfolio context"
+                : "Insufficient portfolio context"}
+            </p>
+          </div>
+          <div className="mt-3 grid gap-4 lg:grid-cols-2">
+            {portfolioScoringResult.ruleChecks.map((rule) => (
+              <StockScoreRuleCard currency="USD" key={rule.id} rule={rule} />
+            ))}
+          </div>
+        </div>
+      ) : portfolioSnapshot ? (
+        <p className="mt-6 rounded-md border border-amber-900 bg-amber-950/40 px-4 py-4 text-sm leading-6 text-amber-100">
+          Portfolio-fit rule explanations are unavailable because the stored
+          snapshot payload does not match the expected schema.
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function ScoreContextCard({
+  children,
+  label,
+  missingTitle,
+  scoredAt,
+  title,
+}: {
+  children: ReactNode;
+  label: string | null;
+  missingTitle: string;
+  scoredAt: string | null;
+  title: string;
+}) {
+  return (
+    <div className="rounded-md border border-neutral-800 bg-neutral-950 p-5">
+      <p className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+        {title}
+      </p>
+      <h3
+        className={
+          label
+            ? "mt-2 text-2xl font-semibold text-white"
+            : "mt-2 text-lg font-semibold text-neutral-500"
+        }
+      >
+        {label ?? missingTitle}
+      </h3>
+      {scoredAt ? (
+        <p className="mt-1 text-xs text-neutral-500">
+          Scored {formatDateTime(scoredAt)}
+        </p>
+      ) : null}
+      <p className="mt-3 text-sm leading-6 text-neutral-400">{children}</p>
+    </div>
+  );
+}
+
+function isPortfolioFitOffset(label: string | null) {
+  return [
+    "Cash Constrained",
+    "Concentration Risk",
+    "Do Not Add",
+    "Overweight",
+    "Review Position",
+  ].includes(label ?? "");
+}
+
+function isPositiveStockLabel(label: string | null) {
+  return label === "Attractive" || label === "Reasonable";
+}
+
 function getStockScoreLayerColumn(
   snapshot: StockScoreRow,
   layerId: StockScoreLayerId,
@@ -1819,6 +2018,8 @@ export async function StockDetailPage({
   let latestFundamentalsLoadError: string | undefined;
   let latestStockScore: StockScoreRow | null = null;
   let latestStockScoreLoadError: string | undefined;
+  let latestPortfolioScore: PortfolioScoreRow | null = null;
+  let latestPortfolioScoreLoadError: string | undefined;
   const defaultPortfolioResult = await ensureDefaultPortfolio(
     supabase,
     authenticatedUser,
@@ -1924,6 +2125,31 @@ export async function StockDetailPage({
       logStockDetailLoadError({
         error: latestStockScoreLoadError,
         scope: "cached Graham score",
+        symbol,
+      });
+
+      const latestPortfolioScoreResult = portfolio
+        ? await supabase
+            .from("portfolio_stock_scores")
+            .select(
+              "id,portfolio_id,symbol,scored_at,portfolio_fit_label,allocation_warning,sector_warning,cash_warning,explanation_json",
+            )
+            .eq("portfolio_id", portfolio.id)
+            .eq("symbol", symbol)
+            .order("scored_at", { ascending: false })
+            .limit(1)
+            .maybeSingle()
+        : {
+            data: null as PortfolioScoreRow | null,
+            error: null,
+          };
+
+      latestPortfolioScore = latestPortfolioScoreResult.data;
+      latestPortfolioScoreLoadError =
+        latestPortfolioScoreResult.error?.message;
+      logStockDetailLoadError({
+        error: latestPortfolioScoreLoadError,
+        scope: "cached portfolio-fit score",
         symbol,
       });
     }
@@ -2119,6 +2345,12 @@ export async function StockDetailPage({
                 currency={stock.currency}
                 loadError={latestStockScoreLoadError}
                 snapshot={latestStockScore}
+              />
+              <CombinedScoreContextSection
+                portfolioLoadError={latestPortfolioScoreLoadError}
+                portfolioSnapshot={latestPortfolioScore}
+                stockLoadError={latestStockScoreLoadError}
+                stockSnapshot={latestStockScore}
               />
               <CachedRangeCard
                 currency={stock.currency}

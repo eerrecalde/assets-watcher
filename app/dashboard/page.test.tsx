@@ -202,6 +202,43 @@ describe("DashboardPage", () => {
     expect(html).toContain("No target");
     expect(html).toContain("No notes");
   });
+
+  it("renders stock and portfolio labels separately for owned holdings", async () => {
+    const html = await renderDashboard({
+      holdings: [holding],
+      portfolioScores: [
+        {
+          portfolio_fit_label: "Concentration Risk",
+          scored_at: "2026-06-06T10:00:00.000Z",
+          symbol: "MSFT",
+        },
+      ],
+      stockScores: [
+        {
+          overall_label: "Reasonable",
+          scored_at: "2026-06-06T09:00:00.000Z",
+          symbol: "MSFT",
+        },
+      ],
+    });
+
+    expect(html).toContain("Stock label");
+    expect(html).toContain("Portfolio fit");
+    expect(html).toContain("Reasonable");
+    expect(html).toContain("Concentration Risk");
+    expect(html).toContain("Portfolio context offsets the stock label.");
+  });
+
+  it("keeps missing stock-score and portfolio-context states separate", async () => {
+    const html = await renderDashboard({
+      holdings: [holding],
+      portfolioScores: [],
+      stockScores: [],
+    });
+
+    expect(html).toContain("Stock score unavailable");
+    expect(html).toContain("Portfolio context unavailable");
+  });
 });
 
 async function renderDashboard(fixture: DashboardFixture) {
