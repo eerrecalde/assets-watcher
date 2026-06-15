@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { createDefaultUserRulesInsert } from "../scoring/user-rules";
 import type { Database } from "@/types/supabase";
 
 type PortfolioRow = Database["public"]["Tables"]["portfolios"]["Row"];
@@ -124,9 +125,7 @@ export async function ensureDefaultPortfolioForUser(
   }
 
   const { error: rulesError } = await supabase.from("user_rules").upsert(
-    {
-      user_id: user.id,
-    },
+    createDefaultUserRulesInsert(user.id),
     {
       ignoreDuplicates: true,
       onConflict: "user_id",
