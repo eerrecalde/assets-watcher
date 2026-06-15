@@ -79,6 +79,34 @@ function buildLatestMap<T extends { symbol: string }>(rows: T[]) {
   return latestRows;
 }
 
+function isPortfolioFitOffset(label: string | null) {
+  return [
+    "Cash Constrained",
+    "Concentration Risk",
+    "Do Not Add",
+    "Overweight",
+    "Review Position",
+  ].includes(label ?? "");
+}
+
+function isPositiveStockLabel(label: string | null) {
+  return label === "Attractive" || label === "Reasonable";
+}
+
+function LabelState({
+  label,
+  missingText,
+}: {
+  label: string | null;
+  missingText: string;
+}) {
+  return label ? (
+    <span className="text-neutral-200">{label}</span>
+  ) : (
+    <span className="text-neutral-500">{missingText}</span>
+  );
+}
+
 export default async function DashboardPage() {
   const supabase = await createClient();
   const {
@@ -218,10 +246,9 @@ export default async function DashboardPage() {
       latestPriceDate: latestPrice?.price_date,
       portfolioFitLabel:
         latestPortfolioScoresBySymbol.get(holding.symbol)
-          ?.portfolio_fit_label ?? "Review Position",
+          ?.portfolio_fit_label ?? null,
       stockLabel:
-        latestStockScoresBySymbol.get(holding.symbol)?.overall_label ??
-        "Insufficient Data",
+        latestStockScoresBySymbol.get(holding.symbol)?.overall_label ?? null,
       stockName: stocksBySymbol.get(holding.symbol)?.name ?? holding.symbol,
       sector: stocksBySymbol.get(holding.symbol)?.sector ?? null,
     };
@@ -587,10 +614,24 @@ export default async function DashboardPage() {
                             ) : null}
                           </td>
                           <td className="px-4 py-4 align-top text-neutral-300">
-                            {row.stockLabel}
+                            <LabelState
+                              label={row.stockLabel}
+                              missingText="Stock score unavailable"
+                            />
                           </td>
                           <td className="px-4 py-4 align-top text-neutral-300">
-                            {row.portfolioFitLabel}
+                            <div>
+                              <LabelState
+                                label={row.portfolioFitLabel}
+                                missingText="Portfolio context unavailable"
+                              />
+                            </div>
+                            {isPositiveStockLabel(row.stockLabel) &&
+                            isPortfolioFitOffset(row.portfolioFitLabel) ? (
+                              <div className="mt-1 max-w-48 text-xs leading-5 text-amber-300">
+                                Portfolio context offsets the stock label.
+                              </div>
+                            ) : null}
                           </td>
                         </tr>
                       );

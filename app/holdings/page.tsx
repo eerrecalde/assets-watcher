@@ -26,9 +26,12 @@ import type { Database } from "@/types/supabase";
 export const dynamic = "force-dynamic";
 
 type HoldingRow = Database["public"]["Tables"]["holdings"]["Row"];
+type PortfolioScoreRow =
+  Database["public"]["Tables"]["portfolio_stock_scores"]["Row"];
 type PortfolioCashRow = Database["public"]["Tables"]["portfolio_cash"]["Row"];
 type StockRow = Database["public"]["Tables"]["stocks"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
+type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
 
 type PageProps = {
   searchParams?: Promise<Record<string, string | string[] | undefined>>;
@@ -123,6 +126,46 @@ function buildLatestPriceMap(prices: StockPriceRow[]) {
   return latestPrices;
 }
 
+function buildLatestMap<T extends { symbol: string }>(rows: T[]) {
+  const latestRows = new Map<string, T>();
+
+  for (const row of rows) {
+    if (!latestRows.has(row.symbol)) {
+      latestRows.set(row.symbol, row);
+    }
+  }
+
+  return latestRows;
+}
+
+function isPortfolioFitOffset(label: string | null) {
+  return [
+    "Cash Constrained",
+    "Concentration Risk",
+    "Do Not Add",
+    "Overweight",
+    "Review Position",
+  ].includes(label ?? "");
+}
+
+function isPositiveStockLabel(label: string | null) {
+  return label === "Attractive" || label === "Reasonable";
+}
+
+function LabelState({
+  label,
+  missingText,
+}: {
+  label: string | null;
+  missingText: string;
+}) {
+  return label ? (
+    <span className="text-neutral-200">{label}</span>
+  ) : (
+    <span className="text-neutral-500">{missingText}</span>
+  );
+}
+
 export default async function HoldingsPage({ searchParams }: PageProps) {
   const params = searchParams ? await searchParams : {};
   const feedbackMessages = buildFeedbackMessages(params);
@@ -177,12 +220,52 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
         .in("symbol", symbols)
         .order("price_date", { ascending: false })
     : { data: [] as Pick<StockPriceRow, "symbol" | "close" | "price_date">[], error: null };
+  const stockScoresResult = symbols.length
+    ? await supabase
+        .from("stock_scores")
+        .select("symbol,overall_label,scored_at")
+        .in("symbol", symbols)
+        .order("scored_at", { ascending: false })
+    : {
+        data: [] as Pick<
+          StockScoreRow,
+          "symbol" | "overall_label" | "scored_at"
+        >[],
+        error: null,
+      };
+  const portfolioScoresResult =
+    portfolio && symbols.length
+      ? await supabase
+          .from("portfolio_stock_scores")
+          .select("symbol,portfolio_fit_label,scored_at")
+          .eq("portfolio_id", portfolio.id)
+          .in("symbol", symbols)
+          .order("scored_at", { ascending: false })
+      : {
+          data: [] as Pick<
+            PortfolioScoreRow,
+            "symbol" | "portfolio_fit_label" | "scored_at"
+          >[],
+          error: null,
+        };
 
   const stocksBySymbol = new Map(
     (stocksResult.data ?? []).map((stock) => [stock.symbol, stock]),
   );
   const latestPricesBySymbol = buildLatestPriceMap(
     (pricesResult.data ?? []) as StockPriceRow[],
+  );
+  const latestStockScoresBySymbol = buildLatestMap(
+    (stockScoresResult.data ?? []) as Pick<
+      StockScoreRow,
+      "symbol" | "overall_label" | "scored_at"
+    >[],
+  );
+  const latestPortfolioScoresBySymbol = buildLatestMap(
+    (portfolioScoresResult.data ?? []) as Pick<
+      PortfolioScoreRow,
+      "symbol" | "portfolio_fit_label" | "scored_at"
+    >[],
   );
   const enrichedHoldings = holdings.map((holding) => {
     const latestPrice = latestPricesBySymbol.get(holding.symbol);
@@ -196,6 +279,11 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
       ...calculatedValue,
       holding,
       latestPriceDate: latestPrice?.price_date,
+      portfolioFitLabel:
+        latestPortfolioScoresBySymbol.get(holding.symbol)
+          ?.portfolio_fit_label ?? null,
+      stockLabel:
+        latestStockScoresBySymbol.get(holding.symbol)?.overall_label ?? null,
       stockName: stocksBySymbol.get(holding.symbol)?.name ?? holding.symbol,
     };
   });
@@ -459,7 +547,11 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
             </p>
           </div>
 
-          {holdingsResult.error || stocksResult.error || pricesResult.error ? (
+          {holdingsResult.error ||
+          stocksResult.error ||
+          pricesResult.error ||
+          stockScoresResult.error ||
+          portfolioScoresResult.error ? (
             <p className="mt-6 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
               Some holdings data could not be loaded.
             </p>
@@ -467,7 +559,7 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
 
           {enrichedHoldings.length ? (
             <div className="mt-5 overflow-x-auto rounded-lg border border-neutral-800">
-              <table className="min-w-[72rem] w-full border-collapse text-left text-sm">
+              <table className="min-w-[88rem] w-full border-collapse text-left text-sm">
                 <thead className="bg-neutral-900 text-xs uppercase tracking-[0.14em] text-neutral-400">
                   <tr>
                     <th className="px-4 py-3 font-medium">Symbol</th>
@@ -478,6 +570,8 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
                     <th className="px-4 py-3 font-medium">Market value</th>
                     <th className="px-4 py-3 font-medium">Unrealised</th>
                     <th className="px-4 py-3 font-medium">Portfolio %</th>
+                    <th className="px-4 py-3 font-medium">Stock label</th>
+                    <th className="px-4 py-3 font-medium">Portfolio fit</th>
                     <th className="px-4 py-3 font-medium">Actions</th>
                   </tr>
                 </thead>
@@ -590,6 +684,26 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
                           {allocation.status === "partial-market-data" ? (
                             <div className="mt-1 text-xs text-amber-300">
                               Partial data
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-4 py-4 align-top text-neutral-300">
+                          <LabelState
+                            label={row.stockLabel}
+                            missingText="Stock score unavailable"
+                          />
+                        </td>
+                        <td className="px-4 py-4 align-top text-neutral-300">
+                          <div>
+                            <LabelState
+                              label={row.portfolioFitLabel}
+                              missingText="Portfolio context unavailable"
+                            />
+                          </div>
+                          {isPositiveStockLabel(row.stockLabel) &&
+                          isPortfolioFitOffset(row.portfolioFitLabel) ? (
+                            <div className="mt-1 max-w-48 text-xs leading-5 text-amber-300">
+                              Portfolio context offsets the stock label.
                             </div>
                           ) : null}
                         </td>

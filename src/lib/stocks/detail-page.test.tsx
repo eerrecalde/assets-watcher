@@ -15,6 +15,8 @@ type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockFundamentalRow =
   Database["public"]["Tables"]["stock_fundamentals"]["Row"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
+type PortfolioScoreRow =
+  Database["public"]["Tables"]["portfolio_stock_scores"]["Row"];
 type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
 
@@ -44,6 +46,7 @@ type StockDetailFixture = {
     "close" | "created_at" | "high" | "low" | "price_date" | "symbol" | "volume"
   > | null;
   portfolio?: Pick<PortfolioRow, "base_currency" | "id" | "name"> | null;
+  portfolioScore?: PortfolioScoreRow | null;
   queryFilters?: QueryFilter[];
   stock?: StockRow | null;
   stockScore?: StockScoreRow | null;
@@ -294,6 +297,73 @@ const stockScore: StockScoreRow = {
   valuation_score: 67,
 };
 
+const portfolioScore: PortfolioScoreRow = {
+  allocation_warning:
+    "Single-stock allocation is above the maximum portfolio-fit threshold.",
+  explanation_json: {
+    input: {},
+    result: {
+      explanation: {
+        caution:
+          "Portfolio fit explains deterministic allocation checks for educational review and is not financial advice.",
+        dominantRules: [
+          {
+            ruleId: "portfolio_fit.position_allocation",
+            status: "fail",
+            summary:
+              "Single-stock allocation is above the maximum portfolio-fit threshold.",
+          },
+        ],
+        summary:
+          "Portfolio fit flags concentration risk from cached allocation context.",
+        warnings: [
+          {
+            ruleId: "portfolio_fit.position_allocation",
+            status: "fail",
+            summary:
+              "Single-stock allocation is above the maximum portfolio-fit threshold.",
+          },
+        ],
+      },
+      label: "Concentration Risk",
+      ruleChecks: [
+        {
+          explanation: {
+            detail:
+              "The selected holding is above the default maximum single-stock allocation.",
+            summary:
+              "Single-stock allocation is above the maximum portfolio-fit threshold.",
+          },
+          id: "portfolio_fit.position_allocation",
+          measuredValue: {
+            availability: "available",
+            asOfDate: "2026-06-05",
+            freshness: "fresh",
+            source: "derived_metric",
+            value: 42,
+          },
+          status: "fail",
+          threshold: {
+            label: "Maximum single-stock allocation",
+            operator: "below_or_equal",
+            unit: "percent",
+            value: 10,
+          },
+        },
+      ],
+      status: "classified",
+    },
+    schemaVersion: 1,
+  },
+  cash_warning: null,
+  id: "portfolio-score-1",
+  portfolio_fit_label: "Concentration Risk",
+  portfolio_id: portfolio.id,
+  scored_at: "2026-06-06T10:00:00.000Z",
+  sector_warning: null,
+  symbol: "AAPL",
+};
+
 describe("StockDetailPage", () => {
   beforeEach(() => {
     vi.useFakeTimers();
@@ -414,6 +484,59 @@ describe("StockDetailPage", () => {
     expect(html).toContain("Unavailable");
     expect(html).toContain("Maximum P/E ratio &lt;= 20");
     expect(html).not.toMatch(/\b(buy|sell)\b/i);
+  });
+
+  it("renders combined stock and portfolio labels with portfolio-fit rule details", async () => {
+    const html = await renderPage({
+      fundamentals: [fundamentals],
+      historicalPrices: [latestPrice],
+      latestPrice,
+      portfolioScore,
+      stock,
+      stockScore: {
+        ...stockScore,
+        overall_label: "Reasonable",
+      },
+    });
+
+    expect(html).toContain("Stock and portfolio context");
+    expect(html).toContain("Stock label");
+    expect(html).toContain("Reasonable");
+    expect(html).toContain("Portfolio fit");
+    expect(html).toContain("Concentration Risk");
+    expect(html).toContain(
+      "Portfolio fit flags concentration risk from cached allocation context.",
+    );
+    expect(html).toContain(
+      "The stock label is positive, but the portfolio-fit label flags allocation context",
+    );
+    expect(html).toContain("Portfolio-fit rules");
+    expect(html).toContain(
+      "Single-stock allocation is above the maximum portfolio-fit threshold.",
+    );
+    expect(html).toContain("Maximum single-stock allocation &lt;= 10%");
+    expect(html).not.toMatch(/\b(buy|sell)\b/i);
+  });
+
+  it("keeps missing stock-score and portfolio-context states separate on stock detail", async () => {
+    const html = await renderPage({
+      fundamentals: [fundamentals],
+      historicalPrices: [latestPrice],
+      latestPrice,
+      portfolioScore: null,
+      stock,
+      stockScore: null,
+    });
+
+    expect(html).toContain("Stock and portfolio context");
+    expect(html).toContain("Stock score unavailable");
+    expect(html).toContain("Portfolio context unavailable");
+    expect(html).toContain(
+      "No cached deterministic stock score snapshot exists for this stock yet.",
+    );
+    expect(html).toContain(
+      "No cached portfolio-fit score snapshot exists for this stock in your default portfolio yet.",
+    );
   });
 
   it("renders an explicit unavailable state when no score snapshot exists", async () => {
@@ -812,6 +935,10 @@ function resolveFixtureQuery(
 
   if (table === "stock_scores") {
     return result(fixture.stockScore ?? null);
+  }
+
+  if (table === "portfolio_stock_scores") {
+    return result(fixture.portfolioScore ?? null);
   }
 
   if (table === "portfolio_cash") {
