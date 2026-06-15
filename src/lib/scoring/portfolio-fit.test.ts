@@ -270,6 +270,99 @@ describe("scorePortfolioFit", () => {
     );
   });
 
+  it("keeps all-cash portfolios insufficient for stock-specific portfolio fit while cash allocation passes", () => {
+    const placeholderHolding = calculateHoldingValue({
+      averageCost: "0",
+      latestClose: null,
+      quantity: "0",
+    });
+
+    const result = scorePortfolioFit({
+      cashAllocation: calculateCashAllocation({
+        cashAmountInput: "500",
+        holdings: [],
+      }),
+      positionAllocation: calculatePositionAllocation({
+        cashAmountInput: "500",
+        holding: placeholderHolding,
+        holdings: [],
+      }),
+      sectorAllocation: null,
+    });
+
+    expect(result).toMatchObject({
+      label: "Insufficient Data",
+      status: "insufficient_data",
+    });
+    expect(result.ruleChecks).toEqual([
+      expect.objectContaining({
+        id: "portfolio_fit.position_allocation",
+        status: "insufficient_data",
+      }),
+      expect.objectContaining({
+        id: "portfolio_fit.sector_allocation",
+        status: "insufficient_data",
+      }),
+      expect.objectContaining({
+        id: "portfolio_fit.cash_allocation",
+        measuredValue: expect.objectContaining({
+          availability: "available",
+          value: 100,
+        }),
+        status: "pass",
+      }),
+      expect.objectContaining({
+        id: "portfolio_fit.data_coverage",
+        status: "pass",
+      }),
+    ]);
+  });
+
+  it("keeps empty zero-value portfolios insufficient across required portfolio-fit inputs", () => {
+    const placeholderHolding = calculateHoldingValue({
+      averageCost: "0",
+      latestClose: null,
+      quantity: "0",
+    });
+
+    const result = scorePortfolioFit({
+      cashAllocation: calculateCashAllocation({
+        cashAmountInput: "0",
+        holdings: [],
+      }),
+      positionAllocation: calculatePositionAllocation({
+        cashAmountInput: "0",
+        holding: placeholderHolding,
+        holdings: [],
+      }),
+      sectorAllocation: null,
+    });
+
+    expect(result).toMatchObject({
+      label: "Insufficient Data",
+      status: "insufficient_data",
+    });
+    expect(result.explanation.summary).toContain(
+      "Portfolio fit cannot be classified",
+    );
+    expect(result.explanation.warnings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          ruleId: "portfolio_fit.position_allocation",
+          status: "insufficient_data",
+        }),
+        expect.objectContaining({
+          ruleId: "portfolio_fit.sector_allocation",
+          status: "insufficient_data",
+        }),
+        expect.objectContaining({
+          ruleId: "portfolio_fit.cash_allocation",
+          status: "insufficient_data",
+        }),
+      ]),
+    );
+  });
+
   it("allows portfolio-fit thresholds to be overridden", () => {
     const result = scorePortfolioFit(createPortfolioFitInput(), {
       thresholds: {
