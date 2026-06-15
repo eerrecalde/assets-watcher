@@ -6,6 +6,7 @@ export type GrahamScoringThresholds = {
   maxPe: number;
   maxSectorAllocationPercent: number;
   maxSingleStockAllocationPercent: number;
+  minCashAllocationPercent: number;
   minCurrentRatio: number;
   minMarginOfSafetyPercent: number;
 };
@@ -16,6 +17,7 @@ export const DEFAULT_GRAHAM_SCORING_THRESHOLDS: GrahamScoringThresholds = {
   maxPe: 20,
   maxSectorAllocationPercent: 30,
   maxSingleStockAllocationPercent: 10,
+  minCashAllocationPercent: 5,
   minCurrentRatio: 1.5,
   minMarginOfSafetyPercent: 25,
 };
@@ -37,6 +39,7 @@ export const PORTFOLIO_FIT_LABELS = [
   "Cash Constrained",
   "Do Not Add",
   "Review Position",
+  "Insufficient Data",
 ] as const satisfies readonly PortfolioFitLabel[];
 
 export const SCORING_LANGUAGE_GUIDANCE = {
