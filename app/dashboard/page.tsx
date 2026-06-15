@@ -5,6 +5,7 @@ import { StockSymbolLink } from "@/components/stocks/stock-symbol-link";
 import { signOutAction } from "@/lib/auth/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import {
+  calculateCashAllocation,
   calculateHoldingValue,
   calculatePositionAllocation,
   calculatePortfolioTotals,
@@ -230,6 +231,10 @@ export default async function DashboardPage() {
     cashResult.data?.amount,
   );
   const cashAmountValue = cashResult.data?.amount;
+  const cashAllocation = calculateCashAllocation({
+    cashAmountInput: cashAmountValue,
+    holdings: enrichedHoldings,
+  });
   const sectorAllocations = calculateSectorAllocations({
     cashAmountInput: cashAmountValue,
     holdings: enrichedHoldings,
@@ -327,6 +332,17 @@ export default async function DashboardPage() {
               <p className="mt-2 text-lg font-semibold text-white">
                 {formatCurrency(portfolioTotals.cashAmount, displayCurrency)}
               </p>
+            </article>
+            <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+              <p className="text-sm text-neutral-400">Cash allocation</p>
+              <p className="mt-2 text-lg font-semibold text-white">
+                {cashAllocation.percentage === null
+                  ? "Not available"
+                  : `${formatNumber(cashAllocation.percentage, 2)}%`}
+              </p>
+              {cashAllocation.status === "partial-market-data" ? (
+                <p className="mt-1 text-xs text-amber-300">Partial data</p>
+              ) : null}
             </article>
             <article className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
               <p className="text-sm text-neutral-400">Holdings value</p>

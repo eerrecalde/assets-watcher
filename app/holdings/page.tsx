@@ -15,6 +15,7 @@ import {
 import { updateCashBalanceAction } from "@/lib/portfolios/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import {
+  calculateCashAllocation,
   calculateHoldingValue,
   calculatePositionAllocation,
   calculatePortfolioTotals,
@@ -203,6 +204,10 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
     enrichedHoldings,
     cashAmountValue,
   );
+  const cashAllocation = calculateCashAllocation({
+    cashAmountInput: cashAmountValue,
+    holdings: enrichedHoldings,
+  });
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -264,6 +269,17 @@ export default async function HoldingsPage({ searchParams }: PageProps) {
             <p className="mt-2 text-lg font-semibold text-white">
               {formatCurrency(portfolioTotals.cashAmount, displayCurrency)}
             </p>
+          </div>
+          <div className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+            <p className="text-sm text-neutral-400">Cash allocation</p>
+            <p className="mt-2 text-lg font-semibold text-white">
+              {cashAllocation.percentage === null
+                ? "Not available"
+                : `${formatNumber(cashAllocation.percentage, 2)}%`}
+            </p>
+            {cashAllocation.status === "partial-market-data" ? (
+              <p className="mt-1 text-xs text-amber-300">Partial data</p>
+            ) : null}
           </div>
           <div className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
             <p className="text-sm text-neutral-400">Holdings value</p>
