@@ -494,6 +494,12 @@ export async function WatchlistPage({
               Dashboard
             </Link>
             <Link
+              className="inline-flex h-10 items-center justify-center rounded-md border border-neutral-700 px-4 text-sm font-medium text-neutral-200 transition hover:border-neutral-500 hover:text-white"
+              href="/settings/rules"
+            >
+              Rules
+            </Link>
+            <Link
               className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300"
               href="/holdings"
             >
