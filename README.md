@@ -197,6 +197,16 @@ Default deterministic Graham thresholds currently mirror the product plan:
 
 Scoring depends only on cached local data. Valuation needs cached fundamentals such as EPS, book value per share, P/E, and P/B plus a latest cached close price to derive Graham Number and margin of safety. Quality needs cached profitability inputs such as EPS, net income, free cash flow, and revenue. Safety needs cached current ratio, debt/equity, free cash flow, total debt, and total equity. Market context needs cached daily price history for movement, range, and moving-average context. Portfolio-fit scoring consumes deterministic position, sector, and cash allocation inputs and returns `Underweight`, `Balanced`, `Overweight`, `Concentration Risk`, `Cash Constrained`, `Do Not Add`, `Review Position`, or `Insufficient Data` with rule-level warnings. Missing values remain missing, stale prices are marked as stale historical context, and unavailable or insufficient inputs are excluded from pass/fail scoring instead of being converted to zero.
 
+Portfolio-fit labels are pure deterministic classifications from cached allocation inputs; they do not fetch live data, invoke AI, or make buy/sell recommendations. The `10%` maximum single-stock allocation, `30%` maximum sector allocation, derived `5%` underweight review point, and `5%` minimum cash allocation are V1 defaults pending Milestone 8 user-rule customization. Threshold assumptions are preserved in `docs/decision-records/0007-portfolio-fit-v1-thresholds.md`.
+
+When changing portfolio-aware scoring, run the focused tests first:
+
+```bash
+npm run test -- src/lib/portfolios/totals.test.ts src/lib/scoring/portfolio-fit.test.ts src/lib/scoring/portfolio-score-snapshots.test.ts
+```
+
+Run the full suite with `npm run test` before merging broader scoring changes.
+
 When critical cached inputs are unavailable, the scorer returns explicit insufficient-data states and preserves rule-level reasons in score snapshots. Stock detail pages render the latest stored deterministic snapshot, including layer scores, rule statuses, measured values, thresholds, cached-data source, as-of date, and unavailable reasons where present. If no snapshot exists, the UI says the score snapshot is unavailable rather than inventing a label.
 
 These checks are deterministic educational context, not financial advice. Classic Graham-style thresholds are intentionally conservative and may not fit every business model, especially asset-light software companies. Product copy should use cautious language such as "your rules suggest", "may indicate", or "consider reviewing"; it should not say "buy", "sell", "you should buy", "you should sell", or imply guaranteed outcomes.
