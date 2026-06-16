@@ -224,6 +224,7 @@ describe("persistStockScoreSnapshotForSymbol", () => {
     expect(client.insertedStockScore).toMatchObject({
       overall_label: "Expensive",
       symbol: "AAPL",
+      user_id: "user-1",
       valuation_score: 17,
     });
     expect(client.insertedStockScore?.explanation_json).toMatchObject({
@@ -445,6 +446,7 @@ function createMockSnapshotClient({
                       quality_score: values.quality_score ?? null,
                       safety_score: values.safety_score ?? null,
                       scored_at: values.scored_at ?? SCORE_DATE.toISOString(),
+                      user_id: values.user_id ?? null,
                       valuation_score: values.valuation_score ?? null,
                     } satisfies StockScoreRow,
                     error: null,

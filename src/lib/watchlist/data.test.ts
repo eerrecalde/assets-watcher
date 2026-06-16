@@ -409,6 +409,7 @@ function createEnrichmentQuery({
   error?: { message: string } | null;
 } = {}) {
   const query = {
+    eq: vi.fn(() => query),
     in: vi.fn(() => query),
     order: vi.fn(() => query),
     select: vi.fn(() => query),

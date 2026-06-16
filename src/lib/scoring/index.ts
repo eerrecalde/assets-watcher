@@ -9,3 +9,4 @@ export * from "./stock-score-snapshots";
 export * from "./portfolio-fit";
 export * from "./portfolio-score-snapshots";
 export * from "./user-rules";
+export * from "./rule-change-recalculation";

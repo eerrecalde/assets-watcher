@@ -294,6 +294,7 @@ const stockScore: StockScoreRow = {
   safety_score: null,
   scored_at: "2026-06-06T09:00:00.000Z",
   symbol: "AAPL",
+  user_id: "user-1",
   valuation_score: 67,
 };
 

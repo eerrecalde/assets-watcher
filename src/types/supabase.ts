@@ -405,6 +405,7 @@ export type Database = {
         Row: {
           id: string;
           symbol: string;
+          user_id: string | null;
           scored_at: string;
           valuation_score: number | null;
           quality_score: number | null;
@@ -416,6 +417,7 @@ export type Database = {
         Insert: {
           id?: string;
           symbol: string;
+          user_id?: string | null;
           scored_at?: string;
           valuation_score?: number | null;
           quality_score?: number | null;
@@ -427,6 +429,7 @@ export type Database = {
         Update: {
           id?: string;
           symbol?: string;
+          user_id?: string | null;
           scored_at?: string;
           valuation_score?: number | null;
           quality_score?: number | null;
@@ -442,6 +445,13 @@ export type Database = {
             isOneToOne: false;
             referencedRelation: "stocks";
             referencedColumns: ["symbol"];
+          },
+          {
+            foreignKeyName: "stock_scores_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
           },
         ];
       };
