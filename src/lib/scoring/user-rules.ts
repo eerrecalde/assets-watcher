@@ -28,6 +28,15 @@ export type UserRulesClient = {
   };
 };
 
+export type SaveValuationRuleThresholdsClient = {
+  from(table: "user_rules"): {
+    upsert(
+      values: UserRulesInsert,
+      options: { onConflict: "user_id" },
+    ): PromiseLike<QueryResult<UserRulesRow>>;
+  };
+};
+
 export type LoadUserRuleThresholdsResult =
   | {
       ok: true;
@@ -38,6 +47,28 @@ export type LoadUserRuleThresholdsResult =
       ok: false;
       error: {
         code: "rules_read_failed";
+        message: string;
+      };
+    };
+
+export type ValuationRuleThresholdInput = {
+  maxPb: string;
+  maxPe: string;
+  minMarginOfSafetyPercent: string;
+};
+
+export type SaveValuationRuleThresholdsResult =
+  | {
+      ok: true;
+      thresholds: Pick<
+        GrahamScoringThresholds,
+        "maxPb" | "maxPe" | "minMarginOfSafetyPercent"
+      >;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "invalid_rules" | "rules_write_failed";
         message: string;
       };
     };
@@ -84,6 +115,47 @@ export async function loadUserRuleThresholds(
     ok: true,
     source: "stored",
     thresholds: userRulesRowToGrahamScoringThresholds(data),
+  };
+}
+
+export async function saveValuationRuleThresholds(
+  supabase: SaveValuationRuleThresholdsClient,
+  userId: string,
+  input: ValuationRuleThresholdInput,
+): Promise<SaveValuationRuleThresholdsResult> {
+  const parsedInput = parseValuationRuleThresholdInput(input);
+
+  if (!parsedInput.ok) {
+    return parsedInput;
+  }
+
+  const { error } = await supabase.from("user_rules").upsert(
+    {
+      max_pb: toRuleValue(parsedInput.thresholds.maxPb),
+      max_pe: toRuleValue(parsedInput.thresholds.maxPe),
+      min_margin_of_safety: toRuleValue(
+        parsedInput.thresholds.minMarginOfSafetyPercent,
+      ),
+      user_id: userId,
+    },
+    {
+      onConflict: "user_id",
+    },
+  );
+
+  if (error) {
+    return {
+      ok: false,
+      error: {
+        code: "rules_write_failed",
+        message: `Could not save valuation thresholds: ${error.message}`,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    thresholds: parsedInput.thresholds,
   };
 }
 
@@ -160,6 +232,97 @@ function parseRuleValue(value: string, fallback: number) {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseValuationRuleThresholdInput(
+  input: ValuationRuleThresholdInput,
+): SaveValuationRuleThresholdsResult {
+  const maxPe = parsePositiveRuleValue(input.maxPe, "Maximum P/E");
+
+  if (!maxPe.ok) {
+    return maxPe;
+  }
+
+  const maxPb = parsePositiveRuleValue(input.maxPb, "Maximum P/B");
+
+  if (!maxPb.ok) {
+    return maxPb;
+  }
+
+  const minMarginOfSafetyPercent = parseNonNegativeRuleValue(
+    input.minMarginOfSafetyPercent,
+    "Minimum margin of safety",
+  );
+
+  if (!minMarginOfSafetyPercent.ok) {
+    return minMarginOfSafetyPercent;
+  }
+
+  return {
+    ok: true,
+    thresholds: {
+      maxPb: maxPb.value,
+      maxPe: maxPe.value,
+      minMarginOfSafetyPercent: minMarginOfSafetyPercent.value,
+    },
+  };
+}
+
+function parsePositiveRuleValue(value: string, label: string) {
+  const parsedValue = parseRuleInputValue(value, label);
+
+  if (!parsedValue.ok) {
+    return parsedValue;
+  }
+
+  if (parsedValue.value <= 0) {
+    return invalidRules(`${label} must be greater than zero.`);
+  }
+
+  return parsedValue;
+}
+
+function parseNonNegativeRuleValue(value: string, label: string) {
+  const parsedValue = parseRuleInputValue(value, label);
+
+  if (!parsedValue.ok) {
+    return parsedValue;
+  }
+
+  if (parsedValue.value < 0) {
+    return invalidRules(`${label} must be zero or greater.`);
+  }
+
+  return parsedValue;
+}
+
+function parseRuleInputValue(value: string, label: string) {
+  const normalizedValue = value.trim();
+
+  if (!normalizedValue) {
+    return invalidRules(`${label} is required.`);
+  }
+
+  const parsedValue = Number(normalizedValue);
+
+  if (!Number.isFinite(parsedValue)) {
+    return invalidRules(`${label} must be a valid number.`);
+  }
+
+  return {
+    ok: true as const,
+    value: parsedValue,
+  };
+}
+
+function invalidRules(message: string) {
+  return {
+    ok: false as const,
+    error: {
+      code: "invalid_rules" as const,
+      message,
+    },
+  };
 }
 
 function toRuleValue(value: number) {
