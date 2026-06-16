@@ -10,7 +10,10 @@ import {
   type UserRulesClient,
 } from "@/lib/scoring/user-rules";
 import type { GrahamScoringThresholds } from "@/lib/scoring/thresholds";
-import { updateValuationThresholdsAction } from "./actions";
+import {
+  updateAllocationThresholdsAction,
+  updateValuationThresholdsAction,
+} from "./actions";
 
 type AuthenticatedUser = {
   email?: string | null;
@@ -35,6 +38,7 @@ export type RulesSettingsPageDependencies = {
     userId: string,
   ) => Promise<LoadUserRuleThresholdsResult>;
   redirectToLogin: (url: string) => never;
+  updateAllocationThresholds?: (formData: FormData) => Promise<void>;
   updateValuationThresholds?: (formData: FormData) => Promise<void>;
 };
 
@@ -192,6 +196,71 @@ function ValuationThresholdForm({
   );
 }
 
+function AllocationThresholdForm({
+  action,
+  thresholds,
+}: {
+  action: (formData: FormData) => Promise<void>;
+  thresholds: GrahamScoringThresholds;
+}) {
+  return (
+    <form
+      action={action}
+      className="grid gap-5 border-t border-neutral-800 pt-8"
+    >
+      <div>
+        <h2 className="text-lg font-semibold text-white">
+          Allocation thresholds
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+          Adjust the portfolio-fit limits used to flag position and sector
+          concentration. These settings shape educational labels and do not
+          recommend buying or selling.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="grid gap-2 text-sm font-medium text-neutral-200">
+          Maximum single-stock allocation %
+          <input
+            className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
+            defaultValue={thresholds.maxSingleStockAllocationPercent}
+            max="100"
+            min="0.01"
+            name="max_single_stock_allocation"
+            required
+            step="0.01"
+            type="number"
+          />
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium text-neutral-200">
+          Maximum sector allocation %
+          <input
+            className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
+            defaultValue={thresholds.maxSectorAllocationPercent}
+            max="100"
+            min="0.01"
+            name="max_sector_allocation"
+            required
+            step="0.01"
+            type="number"
+          />
+        </label>
+      </div>
+
+      <div>
+        <button
+          className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300"
+          type="submit"
+        >
+          Save allocation thresholds
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function RulesTable({ thresholds }: { thresholds: GrahamScoringThresholds }) {
   return (
     <div className="mt-5 overflow-x-auto rounded-lg border border-neutral-800">
@@ -253,6 +322,7 @@ export async function RulesSettingsPage({
   feedbackMessages = [],
   loadRuleThresholds = loadUserRuleThresholds,
   redirectToLogin,
+  updateAllocationThresholds = updateAllocationThresholdsAction,
   updateValuationThresholds = updateValuationThresholdsAction,
 }: RulesSettingsPageDependencies) {
   const supabase = await createSupabaseClient();
@@ -308,6 +378,11 @@ export async function RulesSettingsPage({
             <>
               <ValuationThresholdForm
                 action={updateValuationThresholds}
+                thresholds={rulesResult.thresholds}
+              />
+
+              <AllocationThresholdForm
+                action={updateAllocationThresholds}
                 thresholds={rulesResult.thresholds}
               />
 

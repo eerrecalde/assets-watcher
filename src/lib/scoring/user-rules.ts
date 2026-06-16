@@ -37,6 +37,15 @@ export type SaveValuationRuleThresholdsClient = {
   };
 };
 
+export type SaveAllocationRuleThresholdsClient = {
+  from(table: "user_rules"): {
+    upsert(
+      values: UserRulesInsert,
+      options: { onConflict: "user_id" },
+    ): PromiseLike<QueryResult<UserRulesRow>>;
+  };
+};
+
 export type LoadUserRuleThresholdsResult =
   | {
       ok: true;
@@ -57,12 +66,33 @@ export type ValuationRuleThresholdInput = {
   minMarginOfSafetyPercent: string;
 };
 
+export type AllocationRuleThresholdInput = {
+  maxSectorAllocationPercent: string;
+  maxSingleStockAllocationPercent: string;
+};
+
 export type SaveValuationRuleThresholdsResult =
   | {
       ok: true;
       thresholds: Pick<
         GrahamScoringThresholds,
         "maxPb" | "maxPe" | "minMarginOfSafetyPercent"
+      >;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "invalid_rules" | "rules_write_failed";
+        message: string;
+      };
+    };
+
+export type SaveAllocationRuleThresholdsResult =
+  | {
+      ok: true;
+      thresholds: Pick<
+        GrahamScoringThresholds,
+        "maxSectorAllocationPercent" | "maxSingleStockAllocationPercent"
       >;
     }
   | {
@@ -149,6 +179,48 @@ export async function saveValuationRuleThresholds(
       error: {
         code: "rules_write_failed",
         message: `Could not save valuation thresholds: ${error.message}`,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    thresholds: parsedInput.thresholds,
+  };
+}
+
+export async function saveAllocationRuleThresholds(
+  supabase: SaveAllocationRuleThresholdsClient,
+  userId: string,
+  input: AllocationRuleThresholdInput,
+): Promise<SaveAllocationRuleThresholdsResult> {
+  const parsedInput = parseAllocationRuleThresholdInput(input);
+
+  if (!parsedInput.ok) {
+    return parsedInput;
+  }
+
+  const { error } = await supabase.from("user_rules").upsert(
+    {
+      max_sector_allocation: toRuleValue(
+        parsedInput.thresholds.maxSectorAllocationPercent,
+      ),
+      max_single_stock_allocation: toRuleValue(
+        parsedInput.thresholds.maxSingleStockAllocationPercent,
+      ),
+      user_id: userId,
+    },
+    {
+      onConflict: "user_id",
+    },
+  );
+
+  if (error) {
+    return {
+      ok: false,
+      error: {
+        code: "rules_write_failed",
+        message: `Could not save allocation thresholds: ${error.message}`,
       },
     };
   }
@@ -268,6 +340,36 @@ function parseValuationRuleThresholdInput(
   };
 }
 
+function parseAllocationRuleThresholdInput(
+  input: AllocationRuleThresholdInput,
+): SaveAllocationRuleThresholdsResult {
+  const maxSingleStockAllocationPercent = parsePercentRuleValue(
+    input.maxSingleStockAllocationPercent,
+    "Maximum single-stock allocation",
+  );
+
+  if (!maxSingleStockAllocationPercent.ok) {
+    return maxSingleStockAllocationPercent;
+  }
+
+  const maxSectorAllocationPercent = parsePercentRuleValue(
+    input.maxSectorAllocationPercent,
+    "Maximum sector allocation",
+  );
+
+  if (!maxSectorAllocationPercent.ok) {
+    return maxSectorAllocationPercent;
+  }
+
+  return {
+    ok: true,
+    thresholds: {
+      maxSectorAllocationPercent: maxSectorAllocationPercent.value,
+      maxSingleStockAllocationPercent: maxSingleStockAllocationPercent.value,
+    },
+  };
+}
+
 function parsePositiveRuleValue(value: string, label: string) {
   const parsedValue = parseRuleInputValue(value, label);
 
@@ -277,6 +379,20 @@ function parsePositiveRuleValue(value: string, label: string) {
 
   if (parsedValue.value <= 0) {
     return invalidRules(`${label} must be greater than zero.`);
+  }
+
+  return parsedValue;
+}
+
+function parsePercentRuleValue(value: string, label: string) {
+  const parsedValue = parsePositiveRuleValue(value, label);
+
+  if (!parsedValue.ok) {
+    return parsedValue;
+  }
+
+  if (parsedValue.value > 100) {
+    return invalidRules(`${label} must be 100 or less.`);
   }
 
   return parsedValue;

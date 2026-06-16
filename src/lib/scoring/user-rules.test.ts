@@ -4,7 +4,9 @@ import { DEFAULT_GRAHAM_SCORING_THRESHOLDS } from "./thresholds";
 import {
   createDefaultUserRulesInsert,
   loadUserRuleThresholds,
+  saveAllocationRuleThresholds,
   saveValuationRuleThresholds,
+  type SaveAllocationRuleThresholdsClient,
   type SaveValuationRuleThresholdsClient,
   type UserRulesClient,
   userRulesRowToGrahamScoringThresholds,
@@ -178,6 +180,90 @@ describe("saveValuationRuleThresholds", () => {
   });
 });
 
+describe("saveAllocationRuleThresholds", () => {
+  it("upserts allocation thresholds for the user rule set", async () => {
+    const client = createMockSaveAllocationRulesClient();
+
+    const result = await saveAllocationRuleThresholds(client, USER_ID, {
+      maxSectorAllocationPercent: "28",
+      maxSingleStockAllocationPercent: "7.5",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      thresholds: {
+        maxSectorAllocationPercent: 28,
+        maxSingleStockAllocationPercent: 7.5,
+      },
+    });
+    expect(client.upsertedRules).toEqual({
+      max_sector_allocation: "28",
+      max_single_stock_allocation: "7.5",
+      user_id: USER_ID,
+    });
+  });
+
+  it("rejects non-positive allocation limits", async () => {
+    const result = await saveAllocationRuleThresholds(
+      createMockSaveAllocationRulesClient(),
+      USER_ID,
+      {
+        maxSectorAllocationPercent: "30",
+        maxSingleStockAllocationPercent: "0",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_rules",
+        message: "Maximum single-stock allocation must be greater than zero.",
+      },
+    });
+  });
+
+  it("rejects allocation limits above 100 percent", async () => {
+    const result = await saveAllocationRuleThresholds(
+      createMockSaveAllocationRulesClient(),
+      USER_ID,
+      {
+        maxSectorAllocationPercent: "101",
+        maxSingleStockAllocationPercent: "10",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_rules",
+        message: "Maximum sector allocation must be 100 or less.",
+      },
+    });
+  });
+
+  it("returns a write failure when allocation rules cannot be saved", async () => {
+    const result = await saveAllocationRuleThresholds(
+      createMockSaveAllocationRulesClient({
+        error: { message: "permission denied for table user_rules" },
+      }),
+      USER_ID,
+      {
+        maxSectorAllocationPercent: "30",
+        maxSingleStockAllocationPercent: "10",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "rules_write_failed",
+        message:
+          "Could not save allocation thresholds: permission denied for table user_rules",
+      },
+    });
+  });
+});
+
 describe("createDefaultUserRulesInsert", () => {
   it("creates the product-plan default threshold payload for new users", () => {
     expect(createDefaultUserRulesInsert(USER_ID)).toEqual({
@@ -277,6 +363,43 @@ function createMockSaveValuationRulesClient({
   };
 
   return client as SaveValuationRuleThresholdsClient & {
+    upsertedRules: Record<string, string> | null;
+  };
+}
+
+function createMockSaveAllocationRulesClient({
+  error = null,
+}: {
+  error?: { message: string } | null;
+} = {}) {
+  const state: {
+    upsertedRules: Record<string, string> | null;
+  } = {
+    upsertedRules: null,
+  };
+  const client = {
+    get upsertedRules() {
+      return state.upsertedRules;
+    },
+    from(table: "user_rules") {
+      if (table !== "user_rules") {
+        throw new Error(`Unexpected table: ${table}`);
+      }
+
+      return {
+        select() {
+          throw new Error("select was not expected");
+        },
+        upsert(values: Record<string, string>) {
+          state.upsertedRules = values;
+
+          return Promise.resolve({ data: null, error });
+        },
+      };
+    },
+  };
+
+  return client as SaveAllocationRuleThresholdsClient & {
     upsertedRules: Record<string, string> | null;
   };
 }
