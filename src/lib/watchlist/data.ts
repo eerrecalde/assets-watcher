@@ -193,6 +193,7 @@ export async function listEnrichedDefaultPortfolioWatchlistItems(
         "symbol,overall_label,valuation_score,quality_score,safety_score,market_context_score,scored_at,explanation_json",
       )
       .in("symbol", symbols)
+      .eq("user_id", user.id)
       .order("scored_at", { ascending: false }),
   ]);
 

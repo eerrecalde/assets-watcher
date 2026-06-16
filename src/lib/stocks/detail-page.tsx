@@ -2113,9 +2113,10 @@ export async function StockDetailPage({
       const latestStockScoreResult = await supabase
         .from("stock_scores")
         .select(
-          "id,symbol,scored_at,valuation_score,quality_score,safety_score,market_context_score,overall_label,explanation_json",
+          "id,symbol,user_id,scored_at,valuation_score,quality_score,safety_score,market_context_score,overall_label,explanation_json",
         )
         .eq("symbol", symbol)
+        .eq("user_id", authenticatedUser.id)
         .order("scored_at", { ascending: false })
         .limit(1)
         .maybeSingle();

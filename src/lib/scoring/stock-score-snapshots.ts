@@ -156,7 +156,12 @@ export async function persistStockScoreSnapshotForSymbol(
     currentDate,
     thresholds: loadedThresholds.thresholds,
   });
-  const snapshot = toStockScoreInsert(scoringResult, scoringInput);
+  const snapshot = toStockScoreInsert(
+    scoringResult,
+    scoringInput,
+    loadedThresholds.thresholds,
+    userId,
+  );
   const { data, error } = await supabase
     .from("stock_scores")
     .insert(snapshot)
@@ -384,11 +389,18 @@ async function readCachedStockScoringRows(
 function toStockScoreInsert(
   scoringResult: StockScoringResult,
   input: StockScoringInput,
+  thresholds: GrahamScoringThresholds | undefined,
+  userId?: string,
 ): StockScoreInsert {
   return {
     explanation_json: toJson({
       input,
+      ruleScope: {
+        source: userId ? "user_rules" : "defaults",
+        userId: userId ?? null,
+      },
       result: scoringResult,
+      thresholds,
       schemaVersion: 1,
     }),
     market_context_score: scoringResult.layers.market_context.score,
@@ -397,6 +409,7 @@ function toStockScoreInsert(
     safety_score: scoringResult.layers.safety.score,
     scored_at: scoringResult.scoredAt,
     symbol: scoringResult.symbol,
+    user_id: userId ?? null,
     valuation_score: scoringResult.layers.valuation.score,
   };
 }
