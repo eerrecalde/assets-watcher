@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  saveAllocationRuleThresholds,
   saveValuationRuleThresholds,
+  type SaveAllocationRuleThresholdsClient,
   type SaveValuationRuleThresholdsClient,
 } from "@/lib/scoring/user-rules";
 import { createClient } from "@/lib/supabase/server";
@@ -73,4 +75,40 @@ export async function updateValuationThresholdsAction(formData: FormData) {
   revalidatePath("/holdings");
   revalidatePath("/watchlist");
   redirectWithFeedback({ success: "Valuation thresholds saved." });
+}
+
+export async function updateAllocationThresholdsAction(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(`/login?next=${encodeURIComponent(RULES_SETTINGS_PATH)}`);
+  }
+
+  const result = await saveAllocationRuleThresholds(
+    supabase as unknown as SaveAllocationRuleThresholdsClient,
+    user.id,
+    {
+      maxSectorAllocationPercent: getString(
+        formData,
+        "max_sector_allocation",
+      ),
+      maxSingleStockAllocationPercent: getString(
+        formData,
+        "max_single_stock_allocation",
+      ),
+    },
+  );
+
+  if (!result.ok) {
+    redirectWithFeedback({ error: result.error.message });
+  }
+
+  revalidatePath(RULES_SETTINGS_PATH);
+  revalidatePath("/dashboard");
+  revalidatePath("/holdings");
+  revalidatePath("/watchlist");
+  redirectWithFeedback({ success: "Allocation thresholds saved." });
 }
