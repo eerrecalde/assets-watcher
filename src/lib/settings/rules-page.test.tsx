@@ -72,6 +72,9 @@ describe("RulesSettingsPage", () => {
     expect(html).toContain('name="min_margin_of_safety"');
     expect(html).toContain('value="30"');
     expect(html).toContain("30%");
+    expect(html).toContain(
+      'title="Enter a percentage from 0 to 100 with up to 2 decimal places."',
+    );
     expect(html).toContain("Save valuation thresholds");
     expect(html).toContain("do not recommend buying or selling");
     expect(html).toContain("Allocation thresholds");
@@ -79,7 +82,8 @@ describe("RulesSettingsPage", () => {
     expect(html).toContain('value="8"');
     expect(html).toContain('name="max_sector_allocation"');
     expect(html).toContain('value="25"');
-    expect(html.match(/max="100"/g)).toHaveLength(2);
+    expect(html.match(/max="100"/g)).toHaveLength(3);
+    expect(html).toContain("inputMode=\"decimal\"");
     expect(html).toContain("Save allocation thresholds");
     expect(html).toContain("Minimum current ratio");
     expect(html).toContain("2");

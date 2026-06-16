@@ -151,10 +151,12 @@ function ValuationThresholdForm({
           <input
             className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
             defaultValue={thresholds.maxPe}
+            inputMode="decimal"
             min="0.01"
             name="max_pe"
             required
             step="0.01"
+            title="Enter a number greater than 0 with up to 2 decimal places."
             type="number"
           />
         </label>
@@ -164,10 +166,12 @@ function ValuationThresholdForm({
           <input
             className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
             defaultValue={thresholds.maxPb}
+            inputMode="decimal"
             min="0.01"
             name="max_pb"
             required
             step="0.01"
+            title="Enter a number greater than 0 with up to 2 decimal places."
             type="number"
           />
         </label>
@@ -177,10 +181,13 @@ function ValuationThresholdForm({
           <input
             className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
             defaultValue={thresholds.minMarginOfSafetyPercent}
+            inputMode="decimal"
+            max="100"
             min="0"
             name="min_margin_of_safety"
             required
             step="0.01"
+            title="Enter a percentage from 0 to 100 with up to 2 decimal places."
             type="number"
           />
         </label>
@@ -227,11 +234,13 @@ function AllocationThresholdForm({
           <input
             className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
             defaultValue={thresholds.maxSingleStockAllocationPercent}
+            inputMode="decimal"
             max="100"
             min="0.01"
             name="max_single_stock_allocation"
             required
             step="0.01"
+            title="Enter a percentage greater than 0 and no more than 100 with up to 2 decimal places."
             type="number"
           />
         </label>
@@ -241,11 +250,13 @@ function AllocationThresholdForm({
           <input
             className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
             defaultValue={thresholds.maxSectorAllocationPercent}
+            inputMode="decimal"
             max="100"
             min="0.01"
             name="max_sector_allocation"
             required
             step="0.01"
+            title="Enter a percentage greater than 0 and no more than 100 with up to 2 decimal places."
             type="number"
           />
         </label>

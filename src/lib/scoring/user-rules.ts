@@ -17,6 +17,16 @@ type QueryResult<T> = {
   error: QueryError | null;
 };
 
+type RuleValueRange = {
+  max?: number;
+  min: number;
+  minInclusive: boolean;
+};
+
+type RuleValueDefinition = RuleValueRange & {
+  label: string;
+};
+
 type SelectUserRulesQuery = {
   eq(column: string, value: string): SelectUserRulesQuery;
   maybeSingle(): PromiseLike<QueryResult<UserRulesRow>>;
@@ -134,6 +144,57 @@ const USER_RULE_COLUMNS = [
   "min_current_ratio",
   "min_margin_of_safety",
 ].join(", ");
+
+const MAX_NUMERIC_10_2 = 99999999.99;
+const RULE_DECIMAL_PLACES = 2;
+
+const RULE_VALUE_DEFINITIONS = {
+  maxDebtToEquity: {
+    label: "Maximum debt/equity",
+    max: MAX_NUMERIC_10_2,
+    min: 0,
+    minInclusive: true,
+  },
+  maxPb: {
+    label: "Maximum P/B",
+    max: MAX_NUMERIC_10_2,
+    min: 0,
+    minInclusive: false,
+  },
+  maxPe: {
+    label: "Maximum P/E",
+    max: MAX_NUMERIC_10_2,
+    min: 0,
+    minInclusive: false,
+  },
+  maxSectorAllocationPercent: {
+    label: "Maximum sector allocation",
+    max: 100,
+    min: 0,
+    minInclusive: false,
+  },
+  maxSingleStockAllocationPercent: {
+    label: "Maximum single-stock allocation",
+    max: 100,
+    min: 0,
+    minInclusive: false,
+  },
+  minCurrentRatio: {
+    label: "Minimum current ratio",
+    max: MAX_NUMERIC_10_2,
+    min: 0,
+    minInclusive: false,
+  },
+  minMarginOfSafetyPercent: {
+    label: "Minimum margin of safety",
+    max: 100,
+    min: 0,
+    minInclusive: true,
+  },
+} satisfies Record<
+  Exclude<keyof GrahamScoringThresholds, "minCashAllocationPercent">,
+  RuleValueDefinition
+>;
 
 export async function loadUserRuleThresholds(
   supabase: UserRulesClient,
@@ -358,21 +419,27 @@ function parseRuleValue(value: string, fallback: number) {
 function parseValuationRuleThresholdInput(
   input: ValuationRuleThresholdInput,
 ): SaveValuationRuleThresholdsResult {
-  const maxPe = parsePositiveRuleValue(input.maxPe, "Maximum P/E");
+  const maxPe = parseRuleInputValue(
+    input.maxPe,
+    RULE_VALUE_DEFINITIONS.maxPe,
+  );
 
   if (!maxPe.ok) {
     return maxPe;
   }
 
-  const maxPb = parsePositiveRuleValue(input.maxPb, "Maximum P/B");
+  const maxPb = parseRuleInputValue(
+    input.maxPb,
+    RULE_VALUE_DEFINITIONS.maxPb,
+  );
 
   if (!maxPb.ok) {
     return maxPb;
   }
 
-  const minMarginOfSafetyPercent = parseNonNegativeRuleValue(
+  const minMarginOfSafetyPercent = parseRuleInputValue(
     input.minMarginOfSafetyPercent,
-    "Minimum margin of safety",
+    RULE_VALUE_DEFINITIONS.minMarginOfSafetyPercent,
   );
 
   if (!minMarginOfSafetyPercent.ok) {
@@ -392,18 +459,18 @@ function parseValuationRuleThresholdInput(
 function parseAllocationRuleThresholdInput(
   input: AllocationRuleThresholdInput,
 ): SaveAllocationRuleThresholdsResult {
-  const maxSingleStockAllocationPercent = parsePercentRuleValue(
+  const maxSingleStockAllocationPercent = parseRuleInputValue(
     input.maxSingleStockAllocationPercent,
-    "Maximum single-stock allocation",
+    RULE_VALUE_DEFINITIONS.maxSingleStockAllocationPercent,
   );
 
   if (!maxSingleStockAllocationPercent.ok) {
     return maxSingleStockAllocationPercent;
   }
 
-  const maxSectorAllocationPercent = parsePercentRuleValue(
+  const maxSectorAllocationPercent = parseRuleInputValue(
     input.maxSectorAllocationPercent,
-    "Maximum sector allocation",
+    RULE_VALUE_DEFINITIONS.maxSectorAllocationPercent,
   );
 
   if (!maxSectorAllocationPercent.ok) {
@@ -419,65 +486,55 @@ function parseAllocationRuleThresholdInput(
   };
 }
 
-function parsePositiveRuleValue(value: string, label: string) {
-  const parsedValue = parseRuleInputValue(value, label);
-
-  if (!parsedValue.ok) {
-    return parsedValue;
-  }
-
-  if (parsedValue.value <= 0) {
-    return invalidRules(`${label} must be greater than zero.`);
-  }
-
-  return parsedValue;
-}
-
-function parsePercentRuleValue(value: string, label: string) {
-  const parsedValue = parsePositiveRuleValue(value, label);
-
-  if (!parsedValue.ok) {
-    return parsedValue;
-  }
-
-  if (parsedValue.value > 100) {
-    return invalidRules(`${label} must be 100 or less.`);
-  }
-
-  return parsedValue;
-}
-
-function parseNonNegativeRuleValue(value: string, label: string) {
-  const parsedValue = parseRuleInputValue(value, label);
-
-  if (!parsedValue.ok) {
-    return parsedValue;
-  }
-
-  if (parsedValue.value < 0) {
-    return invalidRules(`${label} must be zero or greater.`);
-  }
-
-  return parsedValue;
-}
-
-function parseRuleInputValue(value: string, label: string) {
+function parseRuleInputValue(value: string, definition: RuleValueDefinition) {
   const normalizedValue = value.trim();
 
   if (!normalizedValue) {
-    return invalidRules(`${label} is required.`);
+    return invalidRules(`${definition.label} is required.`);
+  }
+
+  if (!/^-?(?:\d+|\d*\.\d+)$/.test(normalizedValue)) {
+    return invalidRules(`${definition.label} must be a valid number.`);
+  }
+
+  if (getDecimalPlaces(normalizedValue) > RULE_DECIMAL_PLACES) {
+    return invalidRules(
+      `${definition.label} must use no more than ${RULE_DECIMAL_PLACES} decimal places.`,
+    );
   }
 
   const parsedValue = Number(normalizedValue);
 
   if (!Number.isFinite(parsedValue)) {
-    return invalidRules(`${label} must be a valid number.`);
+    return invalidRules(`${definition.label} must be a valid number.`);
+  }
+
+  if (
+    definition.minInclusive
+      ? parsedValue < definition.min
+      : parsedValue <= definition.min
+  ) {
+    return invalidRules(
+      definition.minInclusive
+        ? `${definition.label} must be ${definition.min} or greater.`
+        : `${definition.label} must be greater than ${definition.min}.`,
+    );
+  }
+
+  if (definition.max !== undefined && parsedValue > definition.max) {
+    return invalidRules(`${definition.label} must be ${definition.max} or less.`);
   }
 
   return {
     ok: true as const,
     value: parsedValue,
   };
+}
+
+function getDecimalPlaces(value: string) {
+  const decimalPart = value.split(".")[1];
+
+  return decimalPart ? decimalPart.length : 0;
 }
 
 function invalidRules(message: string) {
