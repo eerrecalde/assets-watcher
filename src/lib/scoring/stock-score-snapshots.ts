@@ -12,6 +12,10 @@ import {
 import { createMarketContextScoringInputFromCachedPrices } from "./market-context";
 import { scoreStock } from "./stock";
 import type { GrahamScoringThresholds } from "./thresholds";
+import {
+  loadUserRuleThresholds,
+  type UserRulesClient,
+} from "./user-rules";
 import type {
   ScoringDataFreshness,
   ScoringDataPoint,
@@ -42,7 +46,7 @@ type SelectQuery<T> = {
   order(column: string, options: { ascending: boolean }): SelectQuery<T>;
 };
 
-export type StockScoreSnapshotClient = {
+export type StockScoreSnapshotClient = UserRulesClient & {
   from(table: "stock_fundamentals"): {
     select(columns: string): SelectQuery<StockFundamentalRow>;
   };
@@ -61,6 +65,7 @@ export type StockScoreSnapshotClient = {
 export type PersistStockScoreSnapshotOptions = {
   currentDate?: Date;
   thresholds?: GrahamScoringThresholds;
+  userId?: string;
 };
 
 export type PersistStockScoreSnapshotResult =
@@ -72,7 +77,10 @@ export type PersistStockScoreSnapshotResult =
   | {
       ok: false;
       error: {
-        code: "cached_data_read_failed" | "snapshot_write_failed";
+        code:
+          | "cached_data_read_failed"
+          | "rule_thresholds_read_failed"
+          | "snapshot_write_failed";
         message: string;
       };
     };
@@ -117,6 +125,7 @@ export async function persistStockScoreSnapshotForSymbol(
   {
     currentDate = new Date(),
     thresholds,
+    userId,
   }: PersistStockScoreSnapshotOptions = {},
 ): Promise<PersistStockScoreSnapshotResult> {
   const normalizedSymbol = normalizeStockScoreSymbol(symbol);
@@ -135,7 +144,18 @@ export async function persistStockScoreSnapshotForSymbol(
     priceRows: cachedRows.priceRows,
     symbol: normalizedSymbol,
   });
-  const scoringResult = scoreStock(scoringInput, { currentDate, thresholds });
+  const loadedThresholds = thresholds
+    ? { ok: true as const, thresholds }
+    : await loadStockScoreThresholds(supabase, userId);
+
+  if (!loadedThresholds.ok) {
+    return loadedThresholds;
+  }
+
+  const scoringResult = scoreStock(scoringInput, {
+    currentDate,
+    thresholds: loadedThresholds.thresholds,
+  });
   const snapshot = toStockScoreInsert(scoringResult, scoringInput);
   const { data, error } = await supabase
     .from("stock_scores")
@@ -159,6 +179,38 @@ export async function persistStockScoreSnapshotForSymbol(
     ok: true,
     scoringResult,
     snapshot: data,
+  };
+}
+
+async function loadStockScoreThresholds(
+  supabase: UserRulesClient,
+  userId: string | undefined,
+): Promise<
+  | {
+      ok: true;
+      thresholds?: GrahamScoringThresholds;
+    }
+  | Extract<PersistStockScoreSnapshotResult, { ok: false }>
+> {
+  if (!userId) {
+    return { ok: true };
+  }
+
+  const rulesResult = await loadUserRuleThresholds(supabase, userId);
+
+  if (!rulesResult.ok) {
+    return {
+      ok: false,
+      error: {
+        code: "rule_thresholds_read_failed",
+        message: rulesResult.error.message,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    thresholds: rulesResult.thresholds,
   };
 }
 

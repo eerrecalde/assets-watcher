@@ -59,11 +59,19 @@ describe("RulesSettingsPage", () => {
     expect(html).toContain("investor@example.com");
     expect(html).toContain("Stored rules");
     expect(html).toContain("Maximum P/E");
+    expect(html).toContain('name="max_pe"');
+    expect(html).toContain('value="18"');
     expect(html).toContain("18");
     expect(html).toContain("Maximum P/B");
+    expect(html).toContain('name="max_pb"');
+    expect(html).toContain('value="2.5"');
     expect(html).toContain("2.5");
     expect(html).toContain("Minimum margin of safety");
+    expect(html).toContain('name="min_margin_of_safety"');
+    expect(html).toContain('value="30"');
     expect(html).toContain("30%");
+    expect(html).toContain("Save valuation thresholds");
+    expect(html).toContain("do not recommend buying or selling");
     expect(html).toContain("Minimum current ratio");
     expect(html).toContain("2");
     expect(html).toContain("Maximum debt/equity");
@@ -97,6 +105,20 @@ describe("RulesSettingsPage", () => {
     expect(html).toContain("1");
     expect(html).toContain("10%");
     expect(html).toContain("30%");
+  });
+
+  it("renders settings feedback messages from the route query", async () => {
+    const html = await renderPage({
+      feedbackMessages: [
+        {
+          id: "notice:success",
+          message: "Valuation thresholds saved.",
+          tone: "success",
+        },
+      ],
+    });
+
+    expect(html).toContain("Valuation thresholds saved.");
   });
 
   it("renders a load error when rule thresholds cannot be read", async () => {
@@ -135,6 +157,7 @@ async function renderPage(
       redirectToLogin: vi.fn((url: string): never => {
         throw new Error(`redirect:${url}`);
       }),
+      updateValuationThresholds: vi.fn(async () => {}),
       ...overrides,
     }),
   );

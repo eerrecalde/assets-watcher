@@ -13,6 +13,7 @@ type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockScoreInsert =
   Database["public"]["Tables"]["stock_scores"]["Insert"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
+type UserRulesRow = Database["public"]["Tables"]["user_rules"]["Row"];
 
 const SCORE_DATE = new Date("2026-06-14T12:00:00.000Z");
 
@@ -49,6 +50,20 @@ const latestPrice: StockPriceRow = {
   volume: 1000,
 };
 
+const storedRules: UserRulesRow = {
+  created_at: "2026-06-15T10:00:00.000Z",
+  id: "rules-1",
+  max_debt_to_equity: "1",
+  max_pb: "1.5",
+  max_pe: "10",
+  max_sector_allocation: "30",
+  max_single_stock_allocation: "10",
+  min_current_ratio: "1.5",
+  min_margin_of_safety: "40",
+  updated_at: "2026-06-15T10:00:00.000Z",
+  user_id: "user-1",
+};
+
 describe("createStockScoringInputFromCachedRows", () => {
   it("maps cached fundamentals and prices into deterministic scoring input", () => {
     const input = createStockScoringInputFromCachedRows({
@@ -73,7 +88,9 @@ describe("createStockScoringInputFromCachedRows", () => {
       availability: "available",
       source: "derived_metric",
     });
-    expect(input.valuation.grahamNumber.value).toBeCloseTo(Math.sqrt(22.5 * 5 * 20));
+    expect(input.valuation.grahamNumber.value).toBeCloseTo(
+      Math.sqrt(22.5 * 5 * 20),
+    );
     expect(input.quality.revenueGrowth).toMatchObject({
       availability: "insufficient",
       reason: "Cached fundamentals do not include enough revenue history yet.",
@@ -190,6 +207,55 @@ describe("persistStockScoreSnapshotForSymbol", () => {
     });
   });
 
+  it("uses saved user valuation thresholds when a user id is provided", async () => {
+    const client = createMockSnapshotClient({
+      fundamentals: [baseFundamentals],
+      prices: [latestPrice],
+      userRules: storedRules,
+    });
+
+    const result = await persistStockScoreSnapshotForSymbol(client, "aapl", {
+      currentDate: SCORE_DATE,
+      userId: "user-1",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(client.userRuleFilters).toEqual([["user_id", "user-1"]]);
+    expect(client.insertedStockScore).toMatchObject({
+      overall_label: "Expensive",
+      symbol: "AAPL",
+      valuation_score: 17,
+    });
+    expect(client.insertedStockScore?.explanation_json).toMatchObject({
+      result: {
+        layers: {
+          valuation: {
+            ruleChecks: expect.arrayContaining([
+              expect.objectContaining({
+                id: "valuation.pe_ratio",
+                threshold: expect.objectContaining({
+                  value: 10,
+                }),
+              }),
+              expect.objectContaining({
+                id: "valuation.pb_ratio",
+                threshold: expect.objectContaining({
+                  value: 1.5,
+                }),
+              }),
+              expect.objectContaining({
+                id: "valuation.margin_of_safety",
+                threshold: expect.objectContaining({
+                  value: 40,
+                }),
+              }),
+            ]),
+          },
+        },
+      },
+    });
+  });
+
   it("persists an insufficient-data snapshot instead of dropping missing rule details", async () => {
     const client = createMockSnapshotClient({
       fundamentals: [],
@@ -258,6 +324,29 @@ describe("persistStockScoreSnapshotForSymbol", () => {
     expect(client.insertedStockScore).toBeNull();
   });
 
+  it("returns a rule read failure before writing when saved thresholds cannot be loaded", async () => {
+    const client = createMockSnapshotClient({
+      fundamentals: [baseFundamentals],
+      prices: [latestPrice],
+      userRulesError: { message: "permission denied for table user_rules" },
+    });
+
+    const result = await persistStockScoreSnapshotForSymbol(client, "AAPL", {
+      currentDate: SCORE_DATE,
+      userId: "user-1",
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "rule_thresholds_read_failed",
+        message:
+          "Could not load user rule thresholds: permission denied for table user_rules",
+      },
+    });
+    expect(client.insertedStockScore).toBeNull();
+  });
+
   it("returns a write failure when snapshot persistence fails", async () => {
     const client = createMockSnapshotClient({
       fundamentals: [baseFundamentals],
@@ -290,23 +379,38 @@ function createMockSnapshotClient({
   insertError = null,
   prices,
   pricesError = null,
+  userRules = null,
+  userRulesError = null,
 }: {
   fundamentals: StockFundamentalRow[];
   fundamentalsError?: { message: string } | null;
   insertError?: { message: string } | null;
   prices: StockPriceRow[];
   pricesError?: { message: string } | null;
+  userRules?: UserRulesRow | null;
+  userRulesError?: { message: string } | null;
 }) {
   const state: {
     insertedStockScore: StockScoreInsert | null;
+    userRuleFilters: [string, string][];
   } = {
     insertedStockScore: null,
+    userRuleFilters: [],
   };
   const client = {
     get insertedStockScore() {
       return state.insertedStockScore;
     },
-    from(table: "stock_fundamentals" | "stock_prices" | "stock_scores") {
+    get userRuleFilters() {
+      return state.userRuleFilters;
+    },
+    from(
+      table:
+        | "stock_fundamentals"
+        | "stock_prices"
+        | "stock_scores"
+        | "user_rules",
+    ) {
       if (table === "stock_fundamentals") {
         return {
           select: () => createSelectQuery(fundamentals, fundamentalsError),
@@ -319,41 +423,49 @@ function createMockSnapshotClient({
         };
       }
 
+      if (table === "stock_scores") {
+        return {
+          insert(values: StockScoreInsert) {
+            state.insertedStockScore = values;
+
+            return {
+              select: () => ({
+                single: async () => {
+                  if (insertError) {
+                    return { data: null, error: insertError };
+                  }
+
+                  return {
+                    data: {
+                      id: "score-snapshot-id",
+                      ...values,
+                      explanation_json: values.explanation_json ?? {},
+                      market_context_score: values.market_context_score ?? null,
+                      overall_label: values.overall_label ?? "Insufficient Data",
+                      quality_score: values.quality_score ?? null,
+                      safety_score: values.safety_score ?? null,
+                      scored_at: values.scored_at ?? SCORE_DATE.toISOString(),
+                      valuation_score: values.valuation_score ?? null,
+                    } satisfies StockScoreRow,
+                    error: null,
+                  };
+                },
+              }),
+            };
+          },
+        };
+      }
+
       return {
-        insert(values: StockScoreInsert) {
-          state.insertedStockScore = values;
-
-          return {
-            select: () => ({
-              single: async () => {
-                if (insertError) {
-                  return { data: null, error: insertError };
-                }
-
-                return {
-                  data: {
-                    id: "score-snapshot-id",
-                    ...values,
-                    explanation_json: values.explanation_json ?? {},
-                    market_context_score: values.market_context_score ?? null,
-                    overall_label: values.overall_label ?? "Insufficient Data",
-                    quality_score: values.quality_score ?? null,
-                    safety_score: values.safety_score ?? null,
-                    scored_at: values.scored_at ?? SCORE_DATE.toISOString(),
-                    valuation_score: values.valuation_score ?? null,
-                  } satisfies StockScoreRow,
-                  error: null,
-                };
-              },
-            }),
-          };
-        },
+        select: () =>
+          createUserRulesSelectQuery(state, userRules, userRulesError),
       };
     },
   };
 
   return client as StockScoreSnapshotClient & {
     insertedStockScore: StockScoreInsert | null;
+    userRuleFilters: [string, string][];
   };
 }
 
@@ -362,6 +474,23 @@ function createSelectQuery<T>(data: T[], error: { message: string } | null) {
     eq: () => query,
     limit: async () => ({ data, error }),
     order: () => query,
+  };
+
+  return query;
+}
+
+function createUserRulesSelectQuery(
+  state: { userRuleFilters: [string, string][] },
+  data: UserRulesRow | null,
+  error: { message: string } | null,
+) {
+  const query = {
+    eq(column: string, value: string) {
+      state.userRuleFilters.push([column, value]);
+
+      return query;
+    },
+    maybeSingle: async () => ({ data, error }),
   };
 
   return query;

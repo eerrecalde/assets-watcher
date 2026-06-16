@@ -4,6 +4,8 @@ import { DEFAULT_GRAHAM_SCORING_THRESHOLDS } from "./thresholds";
 import {
   createDefaultUserRulesInsert,
   loadUserRuleThresholds,
+  saveValuationRuleThresholds,
+  type SaveValuationRuleThresholdsClient,
   type UserRulesClient,
   userRulesRowToGrahamScoringThresholds,
 } from "./user-rules";
@@ -106,6 +108,76 @@ describe("loadUserRuleThresholds", () => {
   });
 });
 
+describe("saveValuationRuleThresholds", () => {
+  it("upserts valuation thresholds for the user rule set", async () => {
+    const client = createMockSaveValuationRulesClient();
+
+    const result = await saveValuationRuleThresholds(client, USER_ID, {
+      maxPb: "2.75",
+      maxPe: "18.5",
+      minMarginOfSafetyPercent: "32",
+    });
+
+    expect(result).toEqual({
+      ok: true,
+      thresholds: {
+        maxPb: 2.75,
+        maxPe: 18.5,
+        minMarginOfSafetyPercent: 32,
+      },
+    });
+    expect(client.upsertedRules).toEqual({
+      max_pb: "2.75",
+      max_pe: "18.5",
+      min_margin_of_safety: "32",
+      user_id: USER_ID,
+    });
+  });
+
+  it("rejects non-positive valuation limits", async () => {
+    const result = await saveValuationRuleThresholds(
+      createMockSaveValuationRulesClient(),
+      USER_ID,
+      {
+        maxPb: "2",
+        maxPe: "0",
+        minMarginOfSafetyPercent: "25",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_rules",
+        message: "Maximum P/E must be greater than zero.",
+      },
+    });
+  });
+
+  it("returns a write failure when valuation rules cannot be saved", async () => {
+    const result = await saveValuationRuleThresholds(
+      createMockSaveValuationRulesClient({
+        error: { message: "permission denied for table user_rules" },
+      }),
+      USER_ID,
+      {
+        maxPb: "2",
+        maxPe: "18",
+        minMarginOfSafetyPercent: "25",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "rules_write_failed",
+        message:
+          "Could not save valuation thresholds: permission denied for table user_rules",
+      },
+    });
+  });
+});
+
 describe("createDefaultUserRulesInsert", () => {
   it("creates the product-plan default threshold payload for new users", () => {
     expect(createDefaultUserRulesInsert(USER_ID)).toEqual({
@@ -169,5 +241,42 @@ function createMockUserRulesClient({
   return client as UserRulesClient & {
     filters: [string, string][];
     selectedColumns: string | null;
+  };
+}
+
+function createMockSaveValuationRulesClient({
+  error = null,
+}: {
+  error?: { message: string } | null;
+} = {}) {
+  const state: {
+    upsertedRules: Record<string, string> | null;
+  } = {
+    upsertedRules: null,
+  };
+  const client = {
+    get upsertedRules() {
+      return state.upsertedRules;
+    },
+    from(table: "user_rules") {
+      if (table !== "user_rules") {
+        throw new Error(`Unexpected table: ${table}`);
+      }
+
+      return {
+        select() {
+          throw new Error("select was not expected");
+        },
+        upsert(values: Record<string, string>) {
+          state.upsertedRules = values;
+
+          return Promise.resolve({ data: null, error });
+        },
+      };
+    },
+  };
+
+  return client as SaveValuationRuleThresholdsClient & {
+    upsertedRules: Record<string, string> | null;
   };
 }

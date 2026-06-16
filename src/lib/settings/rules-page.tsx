@@ -1,11 +1,16 @@
 import Link from "next/link";
 
 import {
+  FeedbackSnackbars,
+  type FeedbackSnackbarMessage,
+} from "@/components/feedback-snackbars";
+import {
   loadUserRuleThresholds,
   type LoadUserRuleThresholdsResult,
   type UserRulesClient,
 } from "@/lib/scoring/user-rules";
 import type { GrahamScoringThresholds } from "@/lib/scoring/thresholds";
+import { updateValuationThresholdsAction } from "./actions";
 
 type AuthenticatedUser = {
   email?: string | null;
@@ -24,11 +29,13 @@ export type SettingsSupabaseClient = UserRulesClient & {
 
 export type RulesSettingsPageDependencies = {
   createSupabaseClient: () => Promise<SettingsSupabaseClient>;
+  feedbackMessages?: FeedbackSnackbarMessage[];
   loadRuleThresholds?: (
     supabase: UserRulesClient,
     userId: string,
   ) => Promise<LoadUserRuleThresholdsResult>;
   redirectToLogin: (url: string) => never;
+  updateValuationThresholds?: (formData: FormData) => Promise<void>;
 };
 
 type RuleDefinition = {
@@ -109,6 +116,82 @@ function SourceBadge({ source }: { source: "defaults" | "stored" }) {
   );
 }
 
+function ValuationThresholdForm({
+  action,
+  thresholds,
+}: {
+  action: (formData: FormData) => Promise<void>;
+  thresholds: GrahamScoringThresholds;
+}) {
+  return (
+    <form
+      action={action}
+      className="grid gap-5 border-t border-neutral-800 pt-8"
+    >
+      <div>
+        <h2 className="text-lg font-semibold text-white">
+          Valuation thresholds
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+          Adjust the valuation limits used by deterministic Graham-inspired
+          checks. These settings shape educational labels and do not recommend
+          buying or selling.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        <label className="grid gap-2 text-sm font-medium text-neutral-200">
+          Maximum P/E
+          <input
+            className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
+            defaultValue={thresholds.maxPe}
+            min="0.000001"
+            name="max_pe"
+            required
+            step="0.01"
+            type="number"
+          />
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium text-neutral-200">
+          Maximum P/B
+          <input
+            className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
+            defaultValue={thresholds.maxPb}
+            min="0.000001"
+            name="max_pb"
+            required
+            step="0.01"
+            type="number"
+          />
+        </label>
+
+        <label className="grid gap-2 text-sm font-medium text-neutral-200">
+          Minimum margin of safety %
+          <input
+            className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
+            defaultValue={thresholds.minMarginOfSafetyPercent}
+            min="0"
+            name="min_margin_of_safety"
+            required
+            step="0.01"
+            type="number"
+          />
+        </label>
+      </div>
+
+      <div>
+        <button
+          className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300"
+          type="submit"
+        >
+          Save valuation thresholds
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function RulesTable({ thresholds }: { thresholds: GrahamScoringThresholds }) {
   return (
     <div className="mt-5 overflow-x-auto rounded-lg border border-neutral-800">
@@ -167,8 +250,10 @@ function SettingsNavigation() {
 
 export async function RulesSettingsPage({
   createSupabaseClient,
+  feedbackMessages = [],
   loadRuleThresholds = loadUserRuleThresholds,
   redirectToLogin,
+  updateValuationThresholds = updateValuationThresholdsAction,
 }: RulesSettingsPageDependencies) {
   const supabase = await createSupabaseClient();
   const {
@@ -185,6 +270,7 @@ export async function RulesSettingsPage({
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
+      <FeedbackSnackbars messages={feedbackMessages} />
       <section className="mx-auto flex min-h-screen w-full max-w-7xl flex-col px-6 py-10 sm:px-8">
         <header className="flex flex-col gap-5 border-b border-neutral-800 pb-8 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -219,21 +305,28 @@ export async function RulesSettingsPage({
           </section>
 
           {rulesResult.ok ? (
-            <section className="border-t border-neutral-800 pt-8">
-              <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-white">
-                    Scoring thresholds
-                  </h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
-                    Values come from your stored rule settings when available,
-                    otherwise the app uses the product-plan defaults.
-                  </p>
-                </div>
-              </div>
+            <>
+              <ValuationThresholdForm
+                action={updateValuationThresholds}
+                thresholds={rulesResult.thresholds}
+              />
 
-              <RulesTable thresholds={rulesResult.thresholds} />
-            </section>
+              <section className="border-t border-neutral-800 pt-8">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
+                  <div>
+                    <h2 className="text-lg font-semibold text-white">
+                      Scoring thresholds
+                    </h2>
+                    <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+                      Values come from your stored rule settings when available,
+                      otherwise the app uses the product-plan defaults.
+                    </p>
+                  </div>
+                </div>
+
+                <RulesTable thresholds={rulesResult.thresholds} />
+              </section>
+            </>
           ) : (
             <p className="rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
               {rulesResult.error.message}
