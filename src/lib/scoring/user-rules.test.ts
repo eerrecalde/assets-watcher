@@ -153,7 +153,87 @@ describe("saveValuationRuleThresholds", () => {
       ok: false,
       error: {
         code: "invalid_rules",
-        message: "Maximum P/E must be greater than zero.",
+        message: "Maximum P/E must be greater than 0.",
+      },
+    });
+  });
+
+  it("rejects missing valuation thresholds", async () => {
+    const result = await saveValuationRuleThresholds(
+      createMockSaveValuationRulesClient(),
+      USER_ID,
+      {
+        maxPb: "2",
+        maxPe: "18",
+        minMarginOfSafetyPercent: " ",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_rules",
+        message: "Minimum margin of safety is required.",
+      },
+    });
+  });
+
+  it("rejects non-numeric valuation thresholds", async () => {
+    const result = await saveValuationRuleThresholds(
+      createMockSaveValuationRulesClient(),
+      USER_ID,
+      {
+        maxPb: "two",
+        maxPe: "18",
+        minMarginOfSafetyPercent: "25",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_rules",
+        message: "Maximum P/B must be a valid number.",
+      },
+    });
+  });
+
+  it("rejects valuation thresholds with excess decimal precision", async () => {
+    const result = await saveValuationRuleThresholds(
+      createMockSaveValuationRulesClient(),
+      USER_ID,
+      {
+        maxPb: "2.345",
+        maxPe: "18",
+        minMarginOfSafetyPercent: "25",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_rules",
+        message: "Maximum P/B must use no more than 2 decimal places.",
+      },
+    });
+  });
+
+  it("rejects margin of safety above 100 percent", async () => {
+    const result = await saveValuationRuleThresholds(
+      createMockSaveValuationRulesClient(),
+      USER_ID,
+      {
+        maxPb: "2",
+        maxPe: "18",
+        minMarginOfSafetyPercent: "100.01",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_rules",
+        message: "Minimum margin of safety must be 100 or less.",
       },
     });
   });
@@ -219,7 +299,7 @@ describe("saveAllocationRuleThresholds", () => {
       ok: false,
       error: {
         code: "invalid_rules",
-        message: "Maximum single-stock allocation must be greater than zero.",
+        message: "Maximum single-stock allocation must be greater than 0.",
       },
     });
   });
@@ -239,6 +319,26 @@ describe("saveAllocationRuleThresholds", () => {
       error: {
         code: "invalid_rules",
         message: "Maximum sector allocation must be 100 or less.",
+      },
+    });
+  });
+
+  it("rejects allocation limits with excess decimal precision", async () => {
+    const result = await saveAllocationRuleThresholds(
+      createMockSaveAllocationRulesClient(),
+      USER_ID,
+      {
+        maxSectorAllocationPercent: "30",
+        maxSingleStockAllocationPercent: "10.123",
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "invalid_rules",
+        message:
+          "Maximum single-stock allocation must use no more than 2 decimal places.",
       },
     });
   });
