@@ -11,6 +11,7 @@ import {
 } from "@/lib/scoring/user-rules";
 import type { GrahamScoringThresholds } from "@/lib/scoring/thresholds";
 import {
+  resetRuleThresholdsAction,
   updateAllocationThresholdsAction,
   updateValuationThresholdsAction,
 } from "./actions";
@@ -38,6 +39,7 @@ export type RulesSettingsPageDependencies = {
     userId: string,
   ) => Promise<LoadUserRuleThresholdsResult>;
   redirectToLogin: (url: string) => never;
+  resetRuleThresholds?: () => Promise<void>;
   updateAllocationThresholds?: (formData: FormData) => Promise<void>;
   updateValuationThresholds?: (formData: FormData) => Promise<void>;
 };
@@ -261,6 +263,33 @@ function AllocationThresholdForm({
   );
 }
 
+function ResetThresholdsForm({ action }: { action: () => Promise<void> }) {
+  return (
+    <form
+      action={action}
+      className="grid gap-4 border-t border-neutral-800 pt-8"
+    >
+      <div>
+        <h2 className="text-lg font-semibold text-white">Reset rules</h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+          Persist the product-plan defaults for every rule threshold: P/E 20,
+          P/B 3, margin of safety 25%, current ratio 1.5, debt/equity 1,
+          single-stock allocation 10%, and sector allocation 30%.
+        </p>
+      </div>
+
+      <div>
+        <button
+          className="inline-flex h-10 items-center justify-center rounded-md border border-amber-500/70 px-4 text-sm font-semibold text-amber-100 transition hover:border-amber-300 hover:text-white"
+          type="submit"
+        >
+          Reset all thresholds to defaults
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function RulesTable({ thresholds }: { thresholds: GrahamScoringThresholds }) {
   return (
     <div className="mt-5 overflow-x-auto rounded-lg border border-neutral-800">
@@ -322,6 +351,7 @@ export async function RulesSettingsPage({
   feedbackMessages = [],
   loadRuleThresholds = loadUserRuleThresholds,
   redirectToLogin,
+  resetRuleThresholds = resetRuleThresholdsAction,
   updateAllocationThresholds = updateAllocationThresholdsAction,
   updateValuationThresholds = updateValuationThresholdsAction,
 }: RulesSettingsPageDependencies) {
@@ -385,6 +415,8 @@ export async function RulesSettingsPage({
                 action={updateAllocationThresholds}
                 thresholds={rulesResult.thresholds}
               />
+
+              <ResetThresholdsForm action={resetRuleThresholds} />
 
               <section className="border-t border-neutral-800 pt-8">
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">

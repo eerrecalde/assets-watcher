@@ -4,8 +4,10 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  resetUserRuleThresholds,
   saveAllocationRuleThresholds,
   saveValuationRuleThresholds,
+  type ResetUserRuleThresholdsClient,
   type SaveAllocationRuleThresholdsClient,
   type SaveValuationRuleThresholdsClient,
 } from "@/lib/scoring/user-rules";
@@ -111,4 +113,32 @@ export async function updateAllocationThresholdsAction(formData: FormData) {
   revalidatePath("/holdings");
   revalidatePath("/watchlist");
   redirectWithFeedback({ success: "Allocation thresholds saved." });
+}
+
+export async function resetRuleThresholdsAction() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(`/login?next=${encodeURIComponent(RULES_SETTINGS_PATH)}`);
+  }
+
+  const result = await resetUserRuleThresholds(
+    supabase as unknown as ResetUserRuleThresholdsClient,
+    user.id,
+  );
+
+  if (!result.ok) {
+    redirectWithFeedback({ error: result.error.message });
+  }
+
+  revalidatePath(RULES_SETTINGS_PATH);
+  revalidatePath("/dashboard");
+  revalidatePath("/holdings");
+  revalidatePath("/watchlist");
+  redirectWithFeedback({
+    success: "Rule thresholds reset to product-plan defaults.",
+  });
 }
