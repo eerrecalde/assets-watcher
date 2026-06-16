@@ -4,8 +4,10 @@ import { DEFAULT_GRAHAM_SCORING_THRESHOLDS } from "./thresholds";
 import {
   createDefaultUserRulesInsert,
   loadUserRuleThresholds,
+  resetUserRuleThresholds,
   saveAllocationRuleThresholds,
   saveValuationRuleThresholds,
+  type ResetUserRuleThresholdsClient,
   type SaveAllocationRuleThresholdsClient,
   type SaveValuationRuleThresholdsClient,
   type UserRulesClient,
@@ -264,6 +266,47 @@ describe("saveAllocationRuleThresholds", () => {
   });
 });
 
+describe("resetUserRuleThresholds", () => {
+  it("upserts the full product-plan default threshold set for the user", async () => {
+    const client = createMockResetRulesClient();
+
+    const result = await resetUserRuleThresholds(client, USER_ID);
+
+    expect(result).toEqual({
+      ok: true,
+      thresholds: DEFAULT_GRAHAM_SCORING_THRESHOLDS,
+    });
+    expect(client.upsertedRules).toEqual({
+      max_debt_to_equity: "1",
+      max_pb: "3",
+      max_pe: "20",
+      max_sector_allocation: "30",
+      max_single_stock_allocation: "10",
+      min_current_ratio: "1.5",
+      min_margin_of_safety: "25",
+      user_id: USER_ID,
+    });
+  });
+
+  it("returns a write failure when default rules cannot be persisted", async () => {
+    const result = await resetUserRuleThresholds(
+      createMockResetRulesClient({
+        error: { message: "permission denied for table user_rules" },
+      }),
+      USER_ID,
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: {
+        code: "rules_write_failed",
+        message:
+          "Could not reset rule thresholds: permission denied for table user_rules",
+      },
+    });
+  });
+});
+
 describe("createDefaultUserRulesInsert", () => {
   it("creates the product-plan default threshold payload for new users", () => {
     expect(createDefaultUserRulesInsert(USER_ID)).toEqual({
@@ -327,6 +370,43 @@ function createMockUserRulesClient({
   return client as UserRulesClient & {
     filters: [string, string][];
     selectedColumns: string | null;
+  };
+}
+
+function createMockResetRulesClient({
+  error = null,
+}: {
+  error?: { message: string } | null;
+} = {}) {
+  const state: {
+    upsertedRules: Record<string, string> | null;
+  } = {
+    upsertedRules: null,
+  };
+  const client = {
+    get upsertedRules() {
+      return state.upsertedRules;
+    },
+    from(table: "user_rules") {
+      if (table !== "user_rules") {
+        throw new Error(`Unexpected table: ${table}`);
+      }
+
+      return {
+        select() {
+          throw new Error("select was not expected");
+        },
+        upsert(values: Record<string, string>) {
+          state.upsertedRules = values;
+
+          return Promise.resolve({ data: null, error });
+        },
+      };
+    },
+  };
+
+  return client as ResetUserRuleThresholdsClient & {
+    upsertedRules: Record<string, string> | null;
   };
 }
 

@@ -89,6 +89,11 @@ describe("RulesSettingsPage", () => {
     expect(html).toContain("8%");
     expect(html).toContain("Maximum sector allocation");
     expect(html).toContain("25%");
+    expect(html).toContain("Reset rules");
+    expect(html).toContain("Reset all thresholds to defaults");
+    expect(html).toContain(
+      "Persist the product-plan defaults for every rule threshold",
+    );
     expect(html).toContain("not financial advice");
     expect(html).toContain('href="/dashboard"');
     expect(html).toContain('href="/holdings"');
@@ -166,6 +171,8 @@ async function renderPage(
       redirectToLogin: vi.fn((url: string): never => {
         throw new Error(`redirect:${url}`);
       }),
+      resetRuleThresholds: vi.fn(async () => {}),
+      updateAllocationThresholds: vi.fn(async () => {}),
       updateValuationThresholds: vi.fn(async () => {}),
       ...overrides,
     }),

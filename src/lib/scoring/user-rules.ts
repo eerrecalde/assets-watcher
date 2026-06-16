@@ -46,6 +46,15 @@ export type SaveAllocationRuleThresholdsClient = {
   };
 };
 
+export type ResetUserRuleThresholdsClient = {
+  from(table: "user_rules"): {
+    upsert(
+      values: UserRulesInsert,
+      options: { onConflict: "user_id" },
+    ): PromiseLike<QueryResult<UserRulesRow>>;
+  };
+};
+
 export type LoadUserRuleThresholdsResult =
   | {
       ok: true;
@@ -99,6 +108,19 @@ export type SaveAllocationRuleThresholdsResult =
       ok: false;
       error: {
         code: "invalid_rules" | "rules_write_failed";
+        message: string;
+      };
+    };
+
+export type ResetUserRuleThresholdsResult =
+  | {
+      ok: true;
+      thresholds: GrahamScoringThresholds;
+    }
+  | {
+      ok: false;
+      error: {
+        code: "rules_write_failed";
         message: string;
       };
     };
@@ -228,6 +250,33 @@ export async function saveAllocationRuleThresholds(
   return {
     ok: true,
     thresholds: parsedInput.thresholds,
+  };
+}
+
+export async function resetUserRuleThresholds(
+  supabase: ResetUserRuleThresholdsClient,
+  userId: string,
+): Promise<ResetUserRuleThresholdsResult> {
+  const { error } = await supabase.from("user_rules").upsert(
+    createDefaultUserRulesInsert(userId),
+    {
+      onConflict: "user_id",
+    },
+  );
+
+  if (error) {
+    return {
+      ok: false,
+      error: {
+        code: "rules_write_failed",
+        message: `Could not reset rule thresholds: ${error.message}`,
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    thresholds: DEFAULT_GRAHAM_SCORING_THRESHOLDS,
   };
 }
 
