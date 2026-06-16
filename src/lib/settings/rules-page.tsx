@@ -145,7 +145,7 @@ function ValuationThresholdForm({
           <input
             className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
             defaultValue={thresholds.maxPe}
-            min="0.000001"
+            min="0.01"
             name="max_pe"
             required
             step="0.01"
@@ -158,7 +158,7 @@ function ValuationThresholdForm({
           <input
             className="h-11 rounded-md border border-neutral-700 bg-neutral-950 px-3 text-sm text-white outline-none transition focus:border-emerald-400"
             defaultValue={thresholds.maxPb}
-            min="0.000001"
+            min="0.01"
             name="max_pb"
             required
             step="0.01"

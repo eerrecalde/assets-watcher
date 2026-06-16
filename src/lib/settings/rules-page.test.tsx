@@ -60,12 +60,14 @@ describe("RulesSettingsPage", () => {
     expect(html).toContain("Stored rules");
     expect(html).toContain("Maximum P/E");
     expect(html).toContain('name="max_pe"');
+    expect(html).toContain('step="0.01"');
     expect(html).toContain('value="18"');
     expect(html).toContain("18");
     expect(html).toContain("Maximum P/B");
     expect(html).toContain('name="max_pb"');
     expect(html).toContain('value="2.5"');
     expect(html).toContain("2.5");
+    expect(html.match(/min="0\.01"/g)).toHaveLength(2);
     expect(html).toContain("Minimum margin of safety");
     expect(html).toContain('name="min_margin_of_safety"');
     expect(html).toContain('value="30"');
