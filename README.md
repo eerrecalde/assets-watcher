@@ -183,7 +183,7 @@ The Financial Modeling Prep adapter is available through `createFinancialModelin
 
 ## AI Provider Interface
 
-The AI provider contract lives in `src/lib/ai`. Providers accept only compact deterministic portfolio snapshots and return normalized AI take results with provider, model, token-usage, and cost metadata where available. AI providers are server-side adapters; API keys must use server-only environment variables and must not be exposed through `NEXT_PUBLIC_*` values or browser code.
+The AI provider contract lives in `src/lib/ai`. Providers accept only compact deterministic portfolio snapshots and return normalized AI take results with provider, model, token-usage, and cost metadata where available. The shared AI take prompt template frames providers as cautious educational explanation layers over deterministic facts, requires clear limitations, and prohibits unsupported market facts, forecasts, personalized financial advice, and trading instructions. AI providers are server-side adapters; API keys must use server-only environment variables and must not be exposed through `NEXT_PUBLIC_*` values or browser code.
 
 The Gemini adapter is available through `createGeminiProvider`. It reads `GEMINI_API_KEY` by default, calls Gemini's `generateContent` REST endpoint, asks for structured JSON output, normalizes the narrative into the shared AI take result shape, captures token usage metadata when Gemini returns it, and maps missing configuration, provider failures, safety blocks, and malformed or empty responses into controlled AI provider failures.
 
