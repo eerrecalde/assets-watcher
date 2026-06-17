@@ -9,6 +9,7 @@ import {
   type AITakeResult,
   type GenerateAITakeRequest,
 } from "./provider";
+import { createAITakePromptMessages } from "./prompt";
 
 const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
@@ -252,14 +253,16 @@ export function createGeminiProvider(options?: GeminiProviderOptions) {
 }
 
 function createGeminiRequestBody(request: GenerateAITakeRequest) {
+  const prompt = createAITakePromptMessages(request);
+
   return {
     systemInstruction: {
-      parts: [{ text: createSystemInstruction() }],
+      parts: [{ text: prompt.systemInstruction }],
     },
     contents: [
       {
         role: "user",
-        parts: [{ text: createUserPrompt(request) }],
+        parts: [{ text: prompt.userPrompt }],
       },
     ],
     generationConfig: {
@@ -287,28 +290,6 @@ function createGeminiRequestBody(request: GenerateAITakeRequest) {
       },
     },
   };
-}
-
-function createSystemInstruction() {
-  return [
-    "You are generating an educational portfolio review.",
-    "Use only the structured data provided.",
-    "Do not invent financial facts, prices, forecasts, news, or company information.",
-    "Do not give personalised financial advice.",
-    'Do not say "buy", "sell", or "you should".',
-    "Use cautious language such as: your rules suggest, consider reviewing, this may indicate, this could be worth watching.",
-    "Explain overall portfolio posture, concentration risks, stocks worth reviewing, watchlist opportunities, cash and allocation observations, and key limitations.",
-    "Keep the answer concise, practical, and grounded in the provided data.",
-    "Return only JSON matching the requested schema.",
-  ].join("\n");
-}
-
-function createUserPrompt(request: GenerateAITakeRequest) {
-  return JSON.stringify({
-    task: "Explain this deterministic portfolio snapshot using the output policy.",
-    outputPolicy: request.outputPolicy,
-    snapshot: request.snapshot,
-  });
 }
 
 function parseAITakeOutput(text: string): AITakeOutput | null {
