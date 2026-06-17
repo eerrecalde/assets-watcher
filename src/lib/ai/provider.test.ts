@@ -17,6 +17,7 @@ const request = {
     portfolio: {
       asOfDate: "2026-06-15",
       baseCurrency: "USD",
+      cashAllocationPercent: 7.69,
       cashBalance: 1000,
       deterministicFacts: [
         {
@@ -25,8 +26,28 @@ const request = {
           source: "derived_portfolio_metric",
         },
       ],
+      sectorAllocation: [
+        {
+          asOfDate: "2026-06-15",
+          holdingCount: 1,
+          percentage: 35,
+          sector: "Technology",
+          status: "calculated",
+        },
+      ],
       totalMarketValue: 12000,
       totalPortfolioValue: 13000,
+    },
+    rules: {
+      maxDebtToEquity: 1,
+      maxPb: 3,
+      maxPe: 20,
+      maxSectorAllocationPercent: 30,
+      maxSingleStockAllocationPercent: 10,
+      minCashAllocationPercent: 5,
+      minCurrentRatio: 1.5,
+      minMarginOfSafetyPercent: 25,
+      source: "stored",
     },
     holdings: [
       {

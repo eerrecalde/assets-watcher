@@ -74,6 +74,7 @@ export type AITakePortfolioSnapshot = {
   generatedAt: string;
   holdings: AITakeHoldingSnapshot[];
   portfolio: AITakePortfolioSummary;
+  rules: AITakeRuleSettingsSnapshot;
   snapshotId?: string;
   watchlist: AITakeWatchlistSnapshot[];
 };
@@ -81,10 +82,32 @@ export type AITakePortfolioSnapshot = {
 export type AITakePortfolioSummary = {
   asOfDate: string | null;
   baseCurrency: string;
+  cashAllocationPercent: number | null;
   cashBalance: number | null;
   deterministicFacts: AITakeDeterministicFact[];
+  sectorAllocation: AITakeSectorAllocationSnapshot[];
   totalMarketValue: number | null;
   totalPortfolioValue: number | null;
+};
+
+export type AITakeRuleSettingsSnapshot = {
+  maxDebtToEquity: number;
+  maxPb: number;
+  maxPe: number;
+  maxSectorAllocationPercent: number;
+  maxSingleStockAllocationPercent: number;
+  minCashAllocationPercent: number;
+  minCurrentRatio: number;
+  minMarginOfSafetyPercent: number;
+  source: "defaults" | "stored";
+};
+
+export type AITakeSectorAllocationSnapshot = {
+  asOfDate: string | null;
+  holdingCount: number;
+  percentage: number | null;
+  sector: string;
+  status: "calculated" | "partial-market-data" | "insufficient-data";
 };
 
 export type AITakeHoldingSnapshot = {
