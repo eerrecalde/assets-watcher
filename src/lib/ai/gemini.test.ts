@@ -145,6 +145,7 @@ describe("GeminiProvider", () => {
         "content-type": "application/json",
       },
     });
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
     expect(body.generationConfig).toMatchObject({
       candidateCount: 1,
       responseMimeType: "application/json",
@@ -229,6 +230,30 @@ describe("GeminiProvider", () => {
       metadata: {
         provider: "gemini",
         usage: null,
+      },
+    });
+  });
+
+  it("maps timed-out provider requests to unavailable failures", async () => {
+    const fetchFn = vi.fn<typeof fetch>(async () => {
+      throw new DOMException("The operation timed out.", "TimeoutError");
+    });
+
+    const result = await createProvider(fetchFn, {
+      timeoutMs: 25,
+    }).generateTake(request);
+
+    const [, init] = fetchFn.mock.calls[0];
+
+    expect(init?.signal).toBeInstanceOf(AbortSignal);
+    expect(result).toMatchObject({
+      ok: false,
+      error: {
+        code: "provider_unavailable",
+        message: "Gemini is unavailable.",
+      },
+      metadata: {
+        provider: "gemini",
       },
     });
   });

@@ -27,6 +27,58 @@ type AITakeRateLimitResult =
   | { allowed: false; message: string }
   | { error: string };
 
+type AITakeFailureStage =
+  | "admin_client_configuration"
+  | "provider_failure"
+  | "provider_exception"
+  | "provider_initialization"
+  | "rate_limit_check"
+  | "snapshot_exception"
+  | "storage_failure"
+  | "storage_exception";
+
+function getErrorMessage(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  if (
+    error &&
+    typeof error === "object" &&
+    "message" in error &&
+    typeof error.message === "string"
+  ) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+function logAITakeFailure({
+  code,
+  error,
+  model,
+  portfolioId,
+  provider,
+  stage,
+}: {
+  code?: string;
+  error?: unknown;
+  model?: string;
+  portfolioId?: string;
+  provider?: string;
+  stage: AITakeFailureStage;
+}) {
+  console.error("AI take generation failed", {
+    code,
+    error: error ? getErrorMessage(error) : undefined,
+    model,
+    portfolioId,
+    provider,
+    stage,
+  });
+}
+
 function redirectWithFeedback({
   error,
   success,
@@ -65,7 +117,7 @@ function getAITakeFailureMessage(result: Extract<AITakeResult, { ok: false }>) {
       return "The AI provider returned an incomplete response. Try again later.";
     case "provider_error":
     default:
-      return result.error.message;
+      return "AI take generation is temporarily unavailable. Try again later.";
   }
 }
 
@@ -128,7 +180,10 @@ async function checkAITakeRateLimit(
     .gte("created_at", windowStart.toISOString());
 
   if (error) {
-    console.error(error);
+    logAITakeFailure({
+      error,
+      stage: "rate_limit_check",
+    });
     return {
       error: "Could not check your AI take limit. Try again later.",
     };
@@ -168,7 +223,10 @@ export async function generateAITakeAction() {
   try {
     admin = createAdminClient();
   } catch (error) {
-    console.error(error);
+    logAITakeFailure({
+      error,
+      stage: "admin_client_configuration",
+    });
     redirectWithFeedback({
       error: "AI take storage is not configured correctly.",
     });
@@ -184,23 +242,74 @@ export async function generateAITakeAction() {
     redirectWithFeedback({ error: rateLimitResult.message });
   }
 
-  const snapshotResult = await generatePortfolioSnapshotForAITake(
-    supabase as never,
-    user,
-    { portfolioId: portfolioResult.portfolio.id },
-  );
+  let snapshotResult: Awaited<
+    ReturnType<typeof generatePortfolioSnapshotForAITake>
+  >;
+
+  try {
+    snapshotResult = await generatePortfolioSnapshotForAITake(
+      supabase as never,
+      user,
+      { portfolioId: portfolioResult.portfolio.id },
+    );
+  } catch (error) {
+    logAITakeFailure({
+      error,
+      portfolioId: portfolioResult.portfolio.id,
+      stage: "snapshot_exception",
+    });
+    redirectWithFeedback({
+      error:
+        "Could not prepare your portfolio snapshot for an AI take. Your portfolio data is still available.",
+    });
+  }
 
   if (!snapshotResult.ok) {
     redirectWithFeedback({ error: snapshotResult.error.message });
   }
 
-  const provider = createGeminiProvider();
-  const takeResult = await provider.generateTake({
-    outputPolicy: CAUTIOUS_EDUCATIONAL_AI_TAKE_POLICY,
-    snapshot: snapshotResult.snapshot,
-  });
+  let provider: ReturnType<typeof createGeminiProvider>;
+
+  try {
+    provider = createGeminiProvider();
+  } catch (error) {
+    logAITakeFailure({
+      error,
+      portfolioId: portfolioResult.portfolio.id,
+      stage: "provider_initialization",
+    });
+    redirectWithFeedback({
+      error: "AI take generation failed. Try again later.",
+    });
+  }
+
+  let takeResult: AITakeResult;
+
+  try {
+    takeResult = await provider.generateTake({
+      outputPolicy: CAUTIOUS_EDUCATIONAL_AI_TAKE_POLICY,
+      snapshot: snapshotResult.snapshot,
+    });
+  } catch (error) {
+    logAITakeFailure({
+      error,
+      portfolioId: portfolioResult.portfolio.id,
+      stage: "provider_exception",
+    });
+    redirectWithFeedback({
+      error: "AI take generation failed. Try again later.",
+    });
+  }
 
   if (!takeResult.ok) {
+    logAITakeFailure({
+      code: takeResult.error.code,
+      error: takeResult.error.message,
+      model: takeResult.metadata.model,
+      portfolioId: portfolioResult.portfolio.id,
+      provider: takeResult.metadata.provider,
+      stage: "provider_failure",
+    });
     redirectWithFeedback({ error: getAITakeFailureMessage(takeResult) });
   }
 
@@ -221,14 +330,34 @@ export async function generateAITakeAction() {
     user_id: user.id,
   };
 
-  const { error: insertError } = await admin
-    .from("ai_takes")
-    .insert(insertPayload);
+  let insertError: { message: string } | null;
+
+  try {
+    const insertResult = await admin.from("ai_takes").insert(insertPayload);
+    insertError = insertResult.error;
+  } catch (error) {
+    logAITakeFailure({
+      error,
+      model: takeResult.metadata.model,
+      portfolioId: portfolioResult.portfolio.id,
+      provider: takeResult.metadata.provider,
+      stage: "storage_exception",
+    });
+    redirectWithFeedback({
+      error: "The AI take was generated but could not be saved. Try again.",
+    });
+  }
 
   if (insertError) {
-    console.error(insertError);
+    logAITakeFailure({
+      error: insertError,
+      model: takeResult.metadata.model,
+      portfolioId: portfolioResult.portfolio.id,
+      provider: takeResult.metadata.provider,
+      stage: "storage_failure",
+    });
     redirectWithFeedback({
-      error: "The AI take was generated but could not be saved.",
+      error: "The AI take was generated but could not be saved. Try again.",
     });
   }
 
