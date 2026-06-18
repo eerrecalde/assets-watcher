@@ -30,7 +30,8 @@ vi.mock("@/lib/portfolios/defaults", () => ({
 import DashboardPage from "./page";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import { createClient } from "@/lib/supabase/server";
-import type { Database } from "@/types/supabase";
+import type { AITakePortfolioSnapshot } from "@/lib/ai/provider";
+import type { Database, Json } from "@/types/supabase";
 
 type HoldingRow = Database["public"]["Tables"]["holdings"]["Row"];
 type AITakeRow = Database["public"]["Tables"]["ai_takes"]["Row"];
@@ -43,6 +44,10 @@ type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
 type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
+type LatestAITakeRow = Pick<
+  AITakeRow,
+  "created_at" | "input_snapshot_json" | "model" | "output_markdown" | "provider"
+>;
 
 type QueryError = { message: string } | null;
 type QueryResult<T> = {
@@ -57,10 +62,7 @@ type QueryFilter = {
 };
 
 type DashboardFixture = {
-  aiTakes?: Pick<
-    AITakeRow,
-    "created_at" | "model" | "output_markdown" | "provider"
-  >[];
+  aiTakes?: LatestAITakeRow[];
   cash?: Pick<PortfolioCashRow, "amount" | "currency" | "updated_at"> | null;
   holdings?: HoldingRow[];
   portfolio?: Pick<PortfolioRow, "base_currency" | "id" | "name">;
@@ -108,6 +110,69 @@ const watchlistItem: WatchlistItemRow = {
   updated_at: "2026-06-06T12:00:00.000Z",
   user_id: user.id,
 };
+
+const aiTakeSnapshot = {
+  generatedAt: "2026-06-17T14:20:00.000Z",
+  holdings: [
+    {
+      allocationPercent: 74.5,
+      averageCost: 250,
+      companyName: "Microsoft Corporation",
+      deterministicFacts: [
+        {
+          asOfDate: "2026-06-05",
+          description:
+            "MSFT latest cached close is 300 USD and freshness is stale.",
+          source: "cached_market_data",
+        },
+      ],
+      latestPrice: {
+        asOfDate: "2026-06-05",
+        currency: "USD",
+        freshness: "stale",
+        value: 300,
+      },
+      marketValue: 600,
+      portfolioFit: null,
+      quantity: 2,
+      sector: "Technology",
+      stockScore: null,
+      symbol: "MSFT",
+      unrealizedGainLoss: 100,
+      unrealizedGainLossPercent: 20,
+    },
+  ],
+  portfolio: {
+    asOfDate: "2026-06-05",
+    baseCurrency: "USD",
+    cashAllocationPercent: 62.5,
+    cashBalance: 1000,
+    deterministicFacts: [
+      {
+        asOfDate: null,
+        description:
+          "Portfolio snapshot includes 1 holding and total portfolio value 1600.",
+        source: "derived_portfolio_metric",
+      },
+    ],
+    sectorAllocation: [],
+    totalMarketValue: 600,
+    totalPortfolioValue: 1600,
+  },
+  rules: {
+    maxDebtToEquity: 1,
+    maxPb: 3,
+    maxPe: 25,
+    maxSectorAllocationPercent: 35,
+    maxSingleStockAllocationPercent: 20,
+    minCashAllocationPercent: 5,
+    minCurrentRatio: 1.5,
+    minMarginOfSafetyPercent: 25,
+    source: "defaults",
+  },
+  snapshotId: "portfolio-snapshot:portfolio-1:2026-06-17T14:20:00.000Z",
+  watchlist: [],
+} satisfies AITakePortfolioSnapshot;
 
 describe("DashboardPage", () => {
   beforeEach(() => {
@@ -258,6 +323,7 @@ describe("DashboardPage", () => {
       aiTakes: [
         {
           created_at: "2026-06-17T14:30:00.000Z",
+          input_snapshot_json: aiTakeSnapshot as unknown as Json,
           model: "gemini-3.5-flash",
           output_markdown:
             "Your deterministic rules suggest reviewing concentration.\n\nLimitations:\n- Educational context only.",
@@ -270,6 +336,56 @@ describe("DashboardPage", () => {
     expect(html).toContain("Generate AI Take");
     expect(html).toContain("Your deterministic rules suggest");
     expect(html).toContain("gemini / gemini-3.5-flash");
+    expect(html).toContain("Snapshot date");
+    expect(html).toContain("Jun 5, 2026");
+    expect(html).toContain("Educational explanation only, not financial advice.");
+    expect(html).toContain("Underlying deterministic facts");
+    expect(html).toContain("Portfolio snapshot includes 1 holding");
+    expect(html).toContain("MSFT latest cached close is 300 USD");
+  });
+
+  it("renders the AI take empty state before generation", async () => {
+    const html = await renderDashboard({
+      aiTakes: [],
+    });
+
+    expect(html).toContain("No AI take has been generated for this portfolio yet.");
+  });
+
+  it("handles stored AI takes with unavailable snapshot facts", async () => {
+    const html = await renderDashboard({
+      aiTakes: [
+        {
+          created_at: "2026-06-17T14:30:00.000Z",
+          input_snapshot_json: { legacy: true },
+          model: "gemini-3.5-flash",
+          output_markdown: "A legacy take is still readable.",
+          provider: "gemini",
+        },
+      ],
+    });
+
+    expect(html).toContain("Snapshot metadata unavailable");
+    expect(html).toContain(
+      "Underlying deterministic facts are unavailable for this stored take.",
+    );
+  });
+
+  it("escapes stored AI narrative output instead of rendering HTML", async () => {
+    const html = await renderDashboard({
+      aiTakes: [
+        {
+          created_at: "2026-06-17T14:30:00.000Z",
+          input_snapshot_json: aiTakeSnapshot as unknown as Json,
+          model: "gemini-3.5-flash",
+          output_markdown: "Review only. <script>alert('xss')</script>",
+          provider: "gemini",
+        },
+      ],
+    });
+
+    expect(html).toContain("&lt;script&gt;alert(&#x27;xss&#x27;)&lt;/script&gt;");
+    expect(html).not.toContain("<script>alert");
   });
 
   it("renders dashboard feedback from AI take generation redirects", async () => {
