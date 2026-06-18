@@ -106,7 +106,10 @@ describe("generateAITakeAction", () => {
           narrative: "Your deterministic snapshot is ready for review.",
         },
         metadata: {
-          cost: null,
+          cost: {
+            currency: "USD",
+            estimatedCost: 0.00042,
+          },
           generatedAt: new Date("2026-06-17T14:01:00.000Z"),
           model: "gemini-3.5-flash",
           provider: "gemini",
@@ -136,6 +139,8 @@ describe("generateAITakeAction", () => {
     );
     expect(admin.insert).toHaveBeenCalledWith(
       expect.objectContaining({
+        created_at: "2026-06-17T14:01:00.000Z",
+        estimated_cost: "0.000420",
         input_snapshot_json: snapshot,
         model: "gemini-3.5-flash",
         output_markdown: expect.stringContaining(
@@ -149,6 +154,45 @@ describe("generateAITakeAction", () => {
       }),
     );
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("stores nullable usage and cost metadata when the provider omits them", async () => {
+    const admin = createAdminFixture();
+    vi.mocked(createAdminClient).mockReturnValue(admin as never);
+    vi.mocked(createGeminiProvider).mockReturnValue({
+      displayName: "Gemini",
+      id: "gemini",
+      model: "gemini-3.5-flash",
+      generateTake: vi.fn(async (): Promise<AITakeResult> => ({
+        ok: true,
+        data: {
+          deterministicFactsExplained: [],
+          limitations: [],
+          narrative: "Your deterministic snapshot is ready for review.",
+        },
+        metadata: {
+          cost: null,
+          generatedAt: new Date("2026-06-17T14:02:00.000Z"),
+          model: "gemini-3.5-flash",
+          provider: "gemini",
+          usage: null,
+        },
+        warnings: [],
+      })),
+    } as never);
+
+    await expect(generateAITakeAction()).rejects.toThrow(
+      "redirect:/dashboard?success=AI+take+generated.",
+    );
+
+    expect(admin.insert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        created_at: "2026-06-17T14:02:00.000Z",
+        estimated_cost: null,
+        token_usage_input: null,
+        token_usage_output: null,
+      }),
+    );
   });
 
   it("redirects with controlled feedback when the provider fails", async () => {
