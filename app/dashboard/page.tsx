@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 
+import { GenerateAITakeButton } from "@/components/ai/generate-ai-take-button";
 import { StockSymbolLink } from "@/components/stocks/stock-symbol-link";
+import { generateAITakeAction } from "@/lib/ai/actions";
 import { signOutAction } from "@/lib/auth/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import {
@@ -18,6 +20,7 @@ import type { Database } from "@/types/supabase";
 export const dynamic = "force-dynamic";
 
 type HoldingRow = Database["public"]["Tables"]["holdings"]["Row"];
+type AITakeRow = Database["public"]["Tables"]["ai_takes"]["Row"];
 type PortfolioCashRow = Database["public"]["Tables"]["portfolio_cash"]["Row"];
 type PortfolioScoreRow =
   Database["public"]["Tables"]["portfolio_stock_scores"]["Row"];
@@ -28,6 +31,13 @@ type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
 
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
+
+type DashboardPageProps = {
+  searchParams?: Promise<{
+    error?: string;
+    success?: string;
+  }>;
+};
 
 function formatNumber(value: number, maximumFractionDigits = 6) {
   return new Intl.NumberFormat("en-US", {
@@ -57,6 +67,13 @@ function formatCurrency(value: number | null, currency: string) {
   currencyFormatterCache.set(cacheKey, formatter);
 
   return formatter.format(value);
+}
+
+function formatDateTime(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 }
 
 function formatOptionalCurrency(
@@ -107,7 +124,10 @@ function LabelState({
   );
 }
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: DashboardPageProps = {}) {
+  const feedback = await searchParams;
   const supabase = await createClient();
   const {
     data: { user },
@@ -210,6 +230,21 @@ export default async function DashboardPage() {
           >[],
           error: null,
         };
+  const latestAITakeResult = portfolio
+    ? await supabase
+        .from("ai_takes")
+        .select("created_at,model,output_markdown,provider")
+        .eq("portfolio_id", portfolio.id)
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+    : {
+        data: [] as Pick<
+          AITakeRow,
+          "created_at" | "model" | "output_markdown" | "provider"
+        >[],
+        error: null,
+      };
 
   const stocksBySymbol = new Map(
     (stocksResult.data ?? []).map((stock) => [stock.symbol, stock]),
@@ -277,6 +312,13 @@ export default async function DashboardPage() {
     Boolean(watchlistResult.error) ||
     Boolean(stocksResult.error) ||
     Boolean(pricesResult.error);
+  const latestAITake =
+    (latestAITakeResult.data?.[0] as
+      | Pick<
+          AITakeRow,
+          "created_at" | "model" | "output_markdown" | "provider"
+        >
+      | undefined) ?? null;
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -338,6 +380,16 @@ export default async function DashboardPage() {
           {portfolioError ? (
             <p className="rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
               {portfolioError}
+            </p>
+          ) : null}
+          {feedback?.success ? (
+            <p className="rounded-md border border-emerald-900 bg-emerald-950/60 px-4 py-3 text-sm text-emerald-100">
+              {feedback.success}
+            </p>
+          ) : null}
+          {feedback?.error ? (
+            <p className="rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+              {feedback.error}
             </p>
           ) : null}
 
@@ -415,6 +467,45 @@ export default async function DashboardPage() {
               </p>
             </article>
           </div>
+
+          <section className="border-t border-neutral-800 pt-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-white">AI take</h2>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+                  Generate a cautious educational explanation from the current
+                  deterministic portfolio snapshot.
+                </p>
+              </div>
+              <form action={generateAITakeAction}>
+                <GenerateAITakeButton />
+              </form>
+            </div>
+
+            {latestAITakeResult.error ? (
+              <p className="mt-6 rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
+                Latest AI take could not be loaded.
+              </p>
+            ) : latestAITake ? (
+              <article className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/70 p-5">
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-sm font-medium text-neutral-200">
+                    Generated {formatDateTime(latestAITake.created_at)}
+                  </p>
+                  <p className="text-xs uppercase tracking-[0.14em] text-neutral-500">
+                    {latestAITake.provider} / {latestAITake.model}
+                  </p>
+                </div>
+                <p className="mt-4 whitespace-pre-line text-sm leading-6 text-neutral-300">
+                  {latestAITake.output_markdown}
+                </p>
+              </article>
+            ) : (
+              <p className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-400">
+                No AI take has been generated for this portfolio yet.
+              </p>
+            )}
+          </section>
 
           <section className="border-t border-neutral-800 pt-8">
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
