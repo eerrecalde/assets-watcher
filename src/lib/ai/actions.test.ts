@@ -85,6 +85,7 @@ const snapshot: AITakePortfolioSnapshot = {
 describe("generateAITakeAction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     vi.mocked(createClient).mockResolvedValue(createSupabaseFixture() as never);
     vi.mocked(createAdminClient).mockReturnValue(createAdminFixture() as never);
     vi.mocked(ensureDefaultPortfolioForUser).mockResolvedValue({
@@ -257,6 +258,128 @@ describe("generateAITakeAction", () => {
     );
 
     expect(admin.insert).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      "AI take generation failed",
+      expect.objectContaining({
+        code: "provider_unavailable",
+        error: "Gemini is unavailable.",
+        model: "gemini-3.5-flash",
+        portfolioId: portfolio.id,
+        provider: "gemini",
+        stage: "provider_failure",
+      }),
+    );
+  });
+
+  it("does not expose provider configuration details in UI feedback", async () => {
+    const admin = createAdminFixture();
+    vi.mocked(createAdminClient).mockReturnValue(admin as never);
+    vi.mocked(createGeminiProvider).mockReturnValue({
+      displayName: "Gemini",
+      id: "gemini",
+      model: "gemini-3.5-flash",
+      generateTake: vi.fn(async (): Promise<AITakeResult> => ({
+        ok: false,
+        error: {
+          code: "provider_error",
+          message:
+            "Gemini provider is not configured. Set GEMINI_API_KEY on the server.",
+        },
+        metadata: {
+          cost: null,
+          generatedAt: new Date("2026-06-17T14:01:00.000Z"),
+          model: "gemini-3.5-flash",
+          provider: "gemini",
+          usage: null,
+        },
+      })),
+    } as never);
+
+    await expect(generateAITakeAction()).rejects.toThrow(
+      "redirect:/dashboard?error=AI+take+generation+is+temporarily+unavailable.+Try+again+later.",
+    );
+
+    expect(admin.insert).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      "AI take generation failed",
+      expect.objectContaining({
+        code: "provider_error",
+        error:
+          "Gemini provider is not configured. Set GEMINI_API_KEY on the server.",
+        stage: "provider_failure",
+      }),
+    );
+  });
+
+  it("redirects with controlled feedback when the provider throws", async () => {
+    const admin = createAdminFixture();
+    vi.mocked(createAdminClient).mockReturnValue(admin as never);
+    vi.mocked(createGeminiProvider).mockReturnValue({
+      displayName: "Gemini",
+      id: "gemini",
+      model: "gemini-3.5-flash",
+      generateTake: vi.fn(async () => {
+        throw new Error("network timeout with internal provider details");
+      }),
+    } as never);
+
+    await expect(generateAITakeAction()).rejects.toThrow(
+      "redirect:/dashboard?error=AI+take+generation+failed.+Try+again+later.",
+    );
+
+    expect(admin.insert).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      "AI take generation failed",
+      expect.objectContaining({
+        error: "network timeout with internal provider details",
+        portfolioId: portfolio.id,
+        stage: "provider_exception",
+      }),
+    );
+  });
+
+  it("preserves portfolio access when snapshot generation throws", async () => {
+    const admin = createAdminFixture();
+    vi.mocked(createAdminClient).mockReturnValue(admin as never);
+    vi.mocked(generatePortfolioSnapshotForAITake).mockRejectedValue(
+      new Error("permission denied while building snapshot"),
+    );
+
+    await expect(generateAITakeAction()).rejects.toThrow(
+      "redirect:/dashboard?error=Could+not+prepare+your+portfolio+snapshot+for+an+AI+take.+Your+portfolio+data+is+still+available.",
+    );
+
+    expect(createGeminiProvider).not.toHaveBeenCalled();
+    expect(admin.insert).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      "AI take generation failed",
+      expect.objectContaining({
+        error: "permission denied while building snapshot",
+        portfolioId: portfolio.id,
+        stage: "snapshot_exception",
+      }),
+    );
+  });
+
+  it("redirects with retry feedback when a generated take cannot be saved", async () => {
+    const admin = createAdminFixture({
+      insertError: { message: "database write failed" },
+    });
+    vi.mocked(createAdminClient).mockReturnValue(admin as never);
+
+    await expect(generateAITakeAction()).rejects.toThrow(
+      "redirect:/dashboard?error=The+AI+take+was+generated+but+could+not+be+saved.+Try+again.",
+    );
+
+    expect(console.error).toHaveBeenCalledWith(
+      "AI take generation failed",
+      expect.objectContaining({
+        error: "database write failed",
+        portfolioId: portfolio.id,
+        provider: "gemini",
+        stage: "storage_failure",
+      }),
+    );
   });
 
   it("does not consume quota when the provider fails", async () => {
@@ -308,13 +431,15 @@ function createSupabaseFixture() {
 
 function createAdminFixture({
   existingTakeCount = 0,
+  insertError = null,
   rateLimitError = null,
 }: {
   existingTakeCount?: number;
+  insertError?: { message: string } | null;
   rateLimitError?: { message: string } | null;
 } = {}) {
   const insert = vi.fn(async () => ({
-    error: null,
+    error: insertError,
   }));
   const query = {
     eq: vi.fn(() => query),

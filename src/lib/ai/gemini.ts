@@ -13,6 +13,7 @@ import { createAITakePromptMessages } from "./prompt";
 
 const DEFAULT_GEMINI_BASE_URL = "https://generativelanguage.googleapis.com";
 const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+const DEFAULT_GEMINI_TIMEOUT_MS = 15_000;
 const GEMINI_PROVIDER_ID = "gemini";
 
 type GeminiFetch = (
@@ -26,6 +27,7 @@ type GeminiProviderOptions = {
   fetchFn?: GeminiFetch;
   model?: string;
   now?: () => Date;
+  timeoutMs?: number;
 };
 
 type GeminiJsonObject = Record<string, unknown>;
@@ -51,6 +53,7 @@ export class GeminiProvider implements AIProvider {
   private readonly baseUrl: string;
   private readonly fetchFn: GeminiFetch;
   private readonly now: () => Date;
+  private readonly timeoutMs: number;
 
   constructor({
     apiKey = process.env.GEMINI_API_KEY,
@@ -58,12 +61,14 @@ export class GeminiProvider implements AIProvider {
     fetchFn = fetch,
     model = DEFAULT_GEMINI_MODEL,
     now = () => new Date(),
+    timeoutMs = DEFAULT_GEMINI_TIMEOUT_MS,
   }: GeminiProviderOptions = {}) {
     this.apiKey = normalizeOptionalString(apiKey);
     this.baseUrl = baseUrl.replace(/\/+$/, "");
     this.fetchFn = fetchFn;
     this.model = model.trim();
     this.now = now;
+    this.timeoutMs = normalizeTimeoutMs(timeoutMs);
   }
 
   async generateTake(request: GenerateAITakeRequest): Promise<AITakeResult> {
@@ -160,6 +165,7 @@ export class GeminiProvider implements AIProvider {
           "content-type": "application/json",
         },
         body: JSON.stringify(createGeminiRequestBody(request)),
+        signal: createTimeoutSignal(this.timeoutMs),
       });
     } catch {
       return {
@@ -424,6 +430,22 @@ function isValidRequest(request: GenerateAITakeRequest) {
 function normalizeOptionalString(value: string | undefined) {
   const normalized = value?.trim();
   return normalized ? normalized : null;
+}
+
+function normalizeTimeoutMs(value: number) {
+  return Number.isFinite(value) && value > 0
+    ? Math.trunc(value)
+    : DEFAULT_GEMINI_TIMEOUT_MS;
+}
+
+function createTimeoutSignal(timeoutMs: number) {
+  if (typeof AbortSignal.timeout === "function") {
+    return AbortSignal.timeout(timeoutMs);
+  }
+
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), timeoutMs);
+  return controller.signal;
 }
 
 function isValidUrl(value: string) {
