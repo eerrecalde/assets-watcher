@@ -156,6 +156,40 @@ describe("generateAITakeAction", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/dashboard");
   });
 
+  it("checks the rolling per-user limit before generating a take", async () => {
+    const admin = createAdminFixture({ existingTakeCount: 2 });
+    vi.mocked(createAdminClient).mockReturnValue(admin as never);
+
+    await expect(generateAITakeAction()).rejects.toThrow(
+      "redirect:/dashboard?success=AI+take+generated.",
+    );
+
+    expect(admin.select).toHaveBeenCalledWith("id", {
+      count: "exact",
+      head: true,
+    });
+    expect(admin.eq).toHaveBeenCalledWith("user_id", user.id);
+    expect(admin.gte).toHaveBeenCalledWith(
+      "created_at",
+      expect.any(String),
+    );
+    expect(generatePortfolioSnapshotForAITake).toHaveBeenCalled();
+    expect(createGeminiProvider).toHaveBeenCalled();
+  });
+
+  it("redirects before provider calls when the user has reached the AI take limit", async () => {
+    const admin = createAdminFixture({ existingTakeCount: 3 });
+    vi.mocked(createAdminClient).mockReturnValue(admin as never);
+
+    await expect(generateAITakeAction()).rejects.toThrow(
+      "redirect:/dashboard?error=AI+take+limit+reached.+You+can+generate+up+to+3+AI+takes+per+24+hours.+Try+again+later.",
+    );
+
+    expect(generatePortfolioSnapshotForAITake).not.toHaveBeenCalled();
+    expect(createGeminiProvider).not.toHaveBeenCalled();
+    expect(admin.insert).not.toHaveBeenCalled();
+  });
+
   it("stores nullable usage and cost metadata when the provider omits them", async () => {
     const admin = createAdminFixture();
     vi.mocked(createAdminClient).mockReturnValue(admin as never);
@@ -224,6 +258,40 @@ describe("generateAITakeAction", () => {
 
     expect(admin.insert).not.toHaveBeenCalled();
   });
+
+  it("does not consume quota when the provider fails", async () => {
+    const admin = createAdminFixture({ existingTakeCount: 2 });
+    vi.mocked(createAdminClient).mockReturnValue(admin as never);
+    vi.mocked(createGeminiProvider).mockReturnValue({
+      displayName: "Gemini",
+      id: "gemini",
+      model: "gemini-3.5-flash",
+      generateTake: vi.fn(async (): Promise<AITakeResult> => ({
+        ok: false,
+        error: {
+          code: "provider_unavailable",
+          message: "Gemini is unavailable.",
+        },
+        metadata: {
+          cost: null,
+          generatedAt: new Date("2026-06-17T14:01:00.000Z"),
+          model: "gemini-3.5-flash",
+          provider: "gemini",
+          usage: null,
+        },
+      })),
+    } as never);
+
+    await expect(generateAITakeAction()).rejects.toThrow(
+      "redirect:/dashboard?error=The+AI+provider+is+temporarily+unavailable.+Try+again+later.",
+    );
+
+    expect(admin.gte).toHaveBeenCalledWith(
+      "created_at",
+      expect.any(String),
+    );
+    expect(admin.insert).not.toHaveBeenCalled();
+  });
 });
 
 function createSupabaseFixture() {
@@ -238,15 +306,35 @@ function createSupabaseFixture() {
   };
 }
 
-function createAdminFixture() {
+function createAdminFixture({
+  existingTakeCount = 0,
+  rateLimitError = null,
+}: {
+  existingTakeCount?: number;
+  rateLimitError?: { message: string } | null;
+} = {}) {
   const insert = vi.fn(async () => ({
     error: null,
   }));
+  const query = {
+    eq: vi.fn(() => query),
+    gte: vi.fn(async () => ({
+      count: existingTakeCount,
+      error: rateLimitError,
+    })),
+    select: vi.fn(() => query),
+  };
 
   return {
+    eq: query.eq,
+    gte: query.gte,
     insert,
+    select: query.select,
     from: vi.fn(() => ({
+      eq: query.eq,
+      gte: query.gte,
       insert,
+      select: query.select,
     })),
   };
 }

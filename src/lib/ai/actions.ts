@@ -16,9 +16,16 @@ import { createClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/types/supabase";
 
 const DASHBOARD_PATH = "/dashboard";
+const AI_TAKE_RATE_LIMIT_MAX_GENERATIONS = 3;
+const AI_TAKE_RATE_LIMIT_WINDOW_HOURS = 24;
 
 type AITakeInsert =
   Database["public"]["Tables"]["ai_takes"]["Insert"];
+
+type AITakeRateLimitResult =
+  | { allowed: true }
+  | { allowed: false; message: string }
+  | { error: string };
 
 function redirectWithFeedback({
   error,
@@ -104,6 +111,39 @@ function toGeneratedAtValue(value: Date | null | undefined) {
     : undefined;
 }
 
+async function checkAITakeRateLimit(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  now = new Date(),
+): Promise<AITakeRateLimitResult> {
+  const windowStart = new Date(now);
+  windowStart.setHours(
+    windowStart.getHours() - AI_TAKE_RATE_LIMIT_WINDOW_HOURS,
+  );
+
+  const { count, error } = await admin
+    .from("ai_takes")
+    .select("id", { count: "exact", head: true })
+    .eq("user_id", userId)
+    .gte("created_at", windowStart.toISOString());
+
+  if (error) {
+    console.error(error);
+    return {
+      error: "Could not check your AI take limit. Try again later.",
+    };
+  }
+
+  if ((count ?? 0) >= AI_TAKE_RATE_LIMIT_MAX_GENERATIONS) {
+    return {
+      allowed: false,
+      message: `AI take limit reached. You can generate up to ${AI_TAKE_RATE_LIMIT_MAX_GENERATIONS} AI takes per ${AI_TAKE_RATE_LIMIT_WINDOW_HOURS} hours. Try again later.`,
+    };
+  }
+
+  return { allowed: true };
+}
+
 export async function generateAITakeAction() {
   const supabase = await createClient();
   const {
@@ -132,6 +172,16 @@ export async function generateAITakeAction() {
     redirectWithFeedback({
       error: "AI take storage is not configured correctly.",
     });
+  }
+
+  const rateLimitResult = await checkAITakeRateLimit(admin, user.id);
+
+  if ("error" in rateLimitResult) {
+    redirectWithFeedback({ error: rateLimitResult.error });
+  }
+
+  if (!rateLimitResult.allowed) {
+    redirectWithFeedback({ error: rateLimitResult.message });
   }
 
   const snapshotResult = await generatePortfolioSnapshotForAITake(
