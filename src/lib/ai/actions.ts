@@ -98,6 +98,12 @@ function toCostValue(value: number | null | undefined) {
     : null;
 }
 
+function toGeneratedAtValue(value: Date | null | undefined) {
+  return value instanceof Date && Number.isFinite(value.getTime())
+    ? value.toISOString()
+    : undefined;
+}
+
 export async function generateAITakeAction() {
   const supabase = await createClient();
   const {
@@ -149,6 +155,7 @@ export async function generateAITakeAction() {
   }
 
   const insertPayload: AITakeInsert = {
+    created_at: toGeneratedAtValue(takeResult.metadata.generatedAt),
     estimated_cost: toCostValue(takeResult.metadata.cost?.estimatedCost),
     input_snapshot_json: snapshotResult.snapshot as unknown as Json,
     model: takeResult.metadata.model,
