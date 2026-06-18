@@ -9,6 +9,63 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      ai_takes: {
+        Row: {
+          created_at: string;
+          estimated_cost: string | null;
+          id: string;
+          input_snapshot_json: Json;
+          model: string;
+          output_markdown: string;
+          portfolio_id: string;
+          provider: string;
+          token_usage_input: number | null;
+          token_usage_output: number | null;
+          user_id: string;
+        };
+        Insert: {
+          created_at?: string;
+          estimated_cost?: string | null;
+          id?: string;
+          input_snapshot_json: Json;
+          model: string;
+          output_markdown: string;
+          portfolio_id: string;
+          provider: string;
+          token_usage_input?: number | null;
+          token_usage_output?: number | null;
+          user_id: string;
+        };
+        Update: {
+          created_at?: string;
+          estimated_cost?: string | null;
+          id?: string;
+          input_snapshot_json?: Json;
+          model?: string;
+          output_markdown?: string;
+          portfolio_id?: string;
+          provider?: string;
+          token_usage_input?: number | null;
+          token_usage_output?: number | null;
+          user_id?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "ai_takes_portfolio_owner_fk";
+            columns: ["portfolio_id", "user_id"];
+            isOneToOne: false;
+            referencedRelation: "portfolios";
+            referencedColumns: ["id", "user_id"];
+          },
+          {
+            foreignKeyName: "ai_takes_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       holdings: {
         Row: {
           id: string;

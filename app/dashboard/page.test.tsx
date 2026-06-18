@@ -11,6 +11,14 @@ vi.mock("@/lib/auth/actions", () => ({
   signOutAction: "#sign-out",
 }));
 
+vi.mock("@/lib/ai/actions", () => ({
+  generateAITakeAction: "#generate-ai-take",
+}));
+
+vi.mock("@/components/ai/generate-ai-take-button", () => ({
+  GenerateAITakeButton: () => <button type="submit">Generate AI Take</button>,
+}));
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(),
 }));
@@ -25,6 +33,7 @@ import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/supabase";
 
 type HoldingRow = Database["public"]["Tables"]["holdings"]["Row"];
+type AITakeRow = Database["public"]["Tables"]["ai_takes"]["Row"];
 type PortfolioCashRow = Database["public"]["Tables"]["portfolio_cash"]["Row"];
 type PortfolioRow = Database["public"]["Tables"]["portfolios"]["Row"];
 type PortfolioScoreRow =
@@ -48,6 +57,10 @@ type QueryFilter = {
 };
 
 type DashboardFixture = {
+  aiTakes?: Pick<
+    AITakeRow,
+    "created_at" | "model" | "output_markdown" | "provider"
+  >[];
   cash?: Pick<PortfolioCashRow, "amount" | "currency" | "updated_at"> | null;
   holdings?: HoldingRow[];
   portfolio?: Pick<PortfolioRow, "base_currency" | "id" | "name">;
@@ -239,15 +252,52 @@ describe("DashboardPage", () => {
     expect(html).toContain("Stock score unavailable");
     expect(html).toContain("Portfolio context unavailable");
   });
+
+  it("renders the AI take action and latest saved AI take", async () => {
+    const html = await renderDashboard({
+      aiTakes: [
+        {
+          created_at: "2026-06-17T14:30:00.000Z",
+          model: "gemini-3.5-flash",
+          output_markdown:
+            "Your deterministic rules suggest reviewing concentration.\n\nLimitations:\n- Educational context only.",
+          provider: "gemini",
+        },
+      ],
+    });
+
+    expect(html).toContain("AI take");
+    expect(html).toContain("Generate AI Take");
+    expect(html).toContain("Your deterministic rules suggest");
+    expect(html).toContain("gemini / gemini-3.5-flash");
+  });
+
+  it("renders dashboard feedback from AI take generation redirects", async () => {
+    const html = await renderDashboard(
+      {},
+      {
+        success: "AI take generated.",
+      },
+    );
+
+    expect(html).toContain("AI take generated.");
+  });
 });
 
-async function renderDashboard(fixture: DashboardFixture) {
+async function renderDashboard(
+  fixture: DashboardFixture,
+  searchParams?: { error?: string; success?: string },
+) {
   vi.mocked(createClient).mockResolvedValue(createSupabaseFixture(fixture));
   vi.mocked(ensureDefaultPortfolioForUser).mockResolvedValue({
     portfolio: fixture.portfolio ?? portfolio,
   });
 
-  return renderToStaticMarkup(await DashboardPage());
+  return renderToStaticMarkup(
+    await DashboardPage({
+      searchParams: searchParams ? Promise.resolve(searchParams) : undefined,
+    }),
+  );
 }
 
 function createSupabaseFixture(fixture: DashboardFixture) {
@@ -274,6 +324,9 @@ function createQueryBuilder(table: string, fixture: DashboardFixture) {
     },
     maybeSingle() {
       return Promise.resolve(resolveMaybeSingleFixtureQuery(table, fixture));
+    },
+    limit() {
+      return builder;
     },
     order() {
       return builder;
@@ -342,6 +395,10 @@ function resolveFixtureQuery(
 
   if (table === "portfolio_stock_scores") {
     return result(fixture.portfolioScores ?? []);
+  }
+
+  if (table === "ai_takes") {
+    return result(fixture.aiTakes ?? []);
   }
 
   return result(null);
