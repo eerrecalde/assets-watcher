@@ -4,6 +4,10 @@ import Link from "next/link";
 import { GenerateAITakeButton } from "@/components/ai/generate-ai-take-button";
 import { StockSymbolLink } from "@/components/stocks/stock-symbol-link";
 import { generateAITakeAction } from "@/lib/ai/actions";
+import type {
+  AITakeDeterministicFact,
+  AITakePortfolioSnapshot,
+} from "@/lib/ai/provider";
 import { signOutAction } from "@/lib/auth/actions";
 import { ensureDefaultPortfolioForUser } from "@/lib/portfolios/defaults";
 import {
@@ -29,8 +33,13 @@ type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
 type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
+type LatestAITakeRow = Pick<
+  AITakeRow,
+  "created_at" | "input_snapshot_json" | "model" | "output_markdown" | "provider"
+>;
 
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
+const MAX_AI_TAKE_FACTS = 6;
 
 type DashboardPageProps = {
   searchParams?: Promise<{
@@ -76,6 +85,12 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+function formatDate(value: string) {
+  return new Intl.DateTimeFormat("en-US", {
+    dateStyle: "medium",
+  }).format(new Date(value));
+}
+
 function formatOptionalCurrency(
   value: number | null,
   currency: string,
@@ -94,6 +109,64 @@ function buildLatestMap<T extends { symbol: string }>(rows: T[]) {
   }
 
   return latestRows;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isDeterministicFact(value: unknown): value is AITakeDeterministicFact {
+  return (
+    isRecord(value) &&
+    typeof value.description === "string" &&
+    (typeof value.asOfDate === "string" || value.asOfDate === null) &&
+    typeof value.source === "string"
+  );
+}
+
+function parseAITakeSnapshot(value: unknown): AITakePortfolioSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const portfolio = value.portfolio;
+
+  if (
+    typeof value.generatedAt !== "string" ||
+    !isRecord(portfolio) ||
+    !Array.isArray(portfolio.deterministicFacts) ||
+    !Array.isArray(value.holdings) ||
+    !Array.isArray(value.watchlist)
+  ) {
+    return null;
+  }
+
+  return value as unknown as AITakePortfolioSnapshot;
+}
+
+function getAITakeSnapshotDate(snapshot: AITakePortfolioSnapshot | null) {
+  return snapshot?.portfolio.asOfDate ?? snapshot?.generatedAt ?? null;
+}
+
+function getAITakeFacts(snapshot: AITakePortfolioSnapshot | null) {
+  if (!snapshot) {
+    return [];
+  }
+
+  const holdingFacts = snapshot.holdings.flatMap(
+    (holding) => holding.deterministicFacts,
+  );
+  const watchlistFacts = snapshot.watchlist.flatMap(
+    (item) => item.deterministicFacts,
+  );
+
+  return [
+    ...snapshot.portfolio.deterministicFacts,
+    ...holdingFacts,
+    ...watchlistFacts,
+  ]
+    .filter(isDeterministicFact)
+    .slice(0, MAX_AI_TAKE_FACTS);
 }
 
 function isPortfolioFitOffset(label: string | null) {
@@ -233,7 +306,7 @@ export default async function DashboardPage({
   const latestAITakeResult = portfolio
     ? await supabase
         .from("ai_takes")
-        .select("created_at,model,output_markdown,provider")
+        .select("created_at,input_snapshot_json,model,output_markdown,provider")
         .eq("portfolio_id", portfolio.id)
         .eq("user_id", user.id)
         .order("created_at", { ascending: false })
@@ -241,7 +314,11 @@ export default async function DashboardPage({
     : {
         data: [] as Pick<
           AITakeRow,
-          "created_at" | "model" | "output_markdown" | "provider"
+          | "created_at"
+          | "input_snapshot_json"
+          | "model"
+          | "output_markdown"
+          | "provider"
         >[],
         error: null,
       };
@@ -314,11 +391,13 @@ export default async function DashboardPage({
     Boolean(pricesResult.error);
   const latestAITake =
     (latestAITakeResult.data?.[0] as
-      | Pick<
-          AITakeRow,
-          "created_at" | "model" | "output_markdown" | "provider"
-        >
+      | LatestAITakeRow
       | undefined) ?? null;
+  const latestAITakeSnapshot = parseAITakeSnapshot(
+    latestAITake?.input_snapshot_json,
+  );
+  const latestAITakeSnapshotDate = getAITakeSnapshotDate(latestAITakeSnapshot);
+  const latestAITakeFacts = getAITakeFacts(latestAITakeSnapshot);
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -496,9 +575,72 @@ export default async function DashboardPage({
                     {latestAITake.provider} / {latestAITake.model}
                   </p>
                 </div>
-                <p className="mt-4 whitespace-pre-line text-sm leading-6 text-neutral-300">
-                  {latestAITake.output_markdown}
-                </p>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-3">
+                    <p className="text-xs uppercase tracking-[0.14em] text-neutral-500">
+                      Provider/model
+                    </p>
+                    <p className="mt-2 text-sm text-neutral-200">
+                      {latestAITake.provider} / {latestAITake.model}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-3">
+                    <p className="text-xs uppercase tracking-[0.14em] text-neutral-500">
+                      Snapshot date
+                    </p>
+                    <p className="mt-2 text-sm text-neutral-200">
+                      {latestAITakeSnapshotDate
+                        ? formatDate(latestAITakeSnapshotDate)
+                        : "Snapshot metadata unavailable"}
+                    </p>
+                  </div>
+                  <div className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-3">
+                    <p className="text-xs uppercase tracking-[0.14em] text-neutral-500">
+                      Limitation
+                    </p>
+                    <p className="mt-2 text-sm text-neutral-200">
+                      Educational explanation only, not financial advice.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="mt-5 rounded-md border border-emerald-900/60 bg-emerald-950/20 p-4">
+                  <p className="text-xs font-medium uppercase tracking-[0.14em] text-emerald-300">
+                    Educational explanation
+                  </p>
+                  <p className="mt-3 whitespace-pre-line text-sm leading-6 text-neutral-200">
+                    {latestAITake.output_markdown}
+                  </p>
+                </div>
+
+                <div className="mt-5">
+                  <h3 className="text-sm font-semibold text-white">
+                    Underlying deterministic facts
+                  </h3>
+                  {latestAITakeFacts.length ? (
+                    <ul className="mt-3 space-y-2 text-sm leading-6 text-neutral-300">
+                      {latestAITakeFacts.map((fact, index) => (
+                        <li
+                          className="rounded-md border border-neutral-800 bg-neutral-950 px-3 py-2"
+                          key={`${fact.source}-${fact.description}-${index}`}
+                        >
+                          <span>{fact.description}</span>
+                          {fact.asOfDate ? (
+                            <span className="ml-2 text-xs text-neutral-500">
+                              As of {formatDate(fact.asOfDate)}
+                            </span>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-3 rounded-md border border-amber-900 bg-amber-950/40 px-4 py-3 text-sm text-amber-100">
+                      Underlying deterministic facts are unavailable for this
+                      stored take.
+                    </p>
+                  )}
+                </div>
               </article>
             ) : (
               <p className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-400">
