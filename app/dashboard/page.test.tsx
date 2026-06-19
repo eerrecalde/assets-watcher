@@ -318,6 +318,78 @@ describe("DashboardPage", () => {
     expect(html).toContain("Portfolio context unavailable");
   });
 
+  it("renders a prioritized deterministic review queue", async () => {
+    const html = await renderDashboard({
+      holdings: [holding],
+      portfolioScores: [
+        {
+          portfolio_fit_label: "Concentration Risk",
+          scored_at: "2026-06-06T10:00:00.000Z",
+          symbol: "MSFT",
+        },
+      ],
+      prices: [
+        {
+          close: "310",
+          price_date: "2026-06-05",
+          symbol: "MSFT",
+        },
+        {
+          close: "170",
+          price_date: "2026-06-05",
+          symbol: "AAPL",
+        },
+      ],
+      stockScores: [
+        {
+          overall_label: "Reasonable",
+          scored_at: "2026-06-07T09:00:00.000Z",
+          symbol: "AAPL",
+        },
+        {
+          overall_label: "Watch",
+          scored_at: "2026-06-06T09:00:00.000Z",
+          symbol: "AAPL",
+        },
+      ],
+      stocks: [
+        {
+          currency: "USD",
+          name: "Microsoft Corporation",
+          symbol: "MSFT",
+        },
+        {
+          currency: "USD",
+          name: "Apple Inc.",
+          symbol: "AAPL",
+        },
+      ],
+      watchlistItems: [watchlistItem],
+    });
+
+    expect(html).toContain("Review queue");
+    expect(html).toContain("MSFT allocation needs review");
+    expect(html).toContain("Portfolio fit: Concentration Risk");
+    expect(html).toContain("AAPL is at or below target");
+    expect(html).toContain("$170.00 cached close is at or below $180.00 target.");
+    expect(html).toContain("AAPL watchlist opportunity");
+    expect(html).toContain("Latest deterministic stock label: Reasonable");
+    expect(html).toContain("AAPL score changed");
+    expect(html).toContain("Stock label improved from Watch to Reasonable.");
+    expect(html).toContain("View stock");
+  });
+
+  it("renders a non-advisory empty review queue state", async () => {
+    const html = await renderDashboard({
+      holdings: [],
+      stockScores: [],
+      watchlistItems: [],
+    });
+
+    expect(html).toContain("Nothing is currently flagged for review");
+    expect(html).toContain("not financial advice");
+  });
+
   it("renders the AI take action and latest saved AI take", async () => {
     const html = await renderDashboard({
       aiTakes: [

@@ -37,6 +37,30 @@ type LatestAITakeRow = Pick<
   AITakeRow,
   "created_at" | "input_snapshot_json" | "model" | "output_markdown" | "provider"
 >;
+type LatestPriceRow = Pick<StockPriceRow, "symbol" | "close" | "price_date">;
+type LatestStockScoreRow = Pick<
+  StockScoreRow,
+  "symbol" | "overall_label" | "scored_at"
+>;
+type LatestPortfolioScoreRow = Pick<
+  PortfolioScoreRow,
+  "symbol" | "portfolio_fit_label" | "scored_at"
+>;
+type ReviewQueueItemKind =
+  | "allocation"
+  | "score_change"
+  | "target_price"
+  | "watchlist_opportunity";
+type ReviewQueueItem = {
+  context: string;
+  detail: string;
+  href: string;
+  id: string;
+  kind: ReviewQueueItemKind;
+  priority: number;
+  symbol: string;
+  title: string;
+};
 
 const currencyFormatterCache = new Map<string, Intl.NumberFormat>();
 const MAX_AI_TAKE_FACTS = 6;
@@ -183,6 +207,158 @@ function isPositiveStockLabel(label: string | null) {
   return label === "Attractive" || label === "Reasonable";
 }
 
+function getStockLabelRank(label: string | null) {
+  const ranks = new Map([
+    ["Attractive", 1],
+    ["Reasonable", 2],
+    ["Watch", 3],
+    ["Expensive", 4],
+    ["Avoid / Review", 5],
+    ["Insufficient Data", 6],
+  ]);
+
+  return ranks.get(label ?? "") ?? null;
+}
+
+function buildStockScoreHistory(rows: LatestStockScoreRow[]) {
+  const history = new Map<string, LatestStockScoreRow[]>();
+
+  for (const row of rows) {
+    const rowsForSymbol = history.get(row.symbol) ?? [];
+    rowsForSymbol.push(row);
+    history.set(row.symbol, rowsForSymbol);
+  }
+
+  return history;
+}
+
+function buildReviewQueueItems({
+  displayCurrency,
+  enrichedHoldings,
+  latestPricesBySymbol,
+  scoreHistoryBySymbol,
+  stocksBySymbol,
+  watchlistItems,
+}: {
+  displayCurrency: string;
+  enrichedHoldings: Array<{
+    holding: HoldingRow;
+    portfolioFitLabel: string | null;
+    stockLabel: string | null;
+  }>;
+  latestPricesBySymbol: Map<string, LatestPriceRow>;
+  scoreHistoryBySymbol: Map<string, LatestStockScoreRow[]>;
+  stocksBySymbol: Map<
+    string,
+    Pick<StockRow, "currency" | "name" | "sector" | "symbol">
+  >;
+  watchlistItems: WatchlistItemRow[];
+}) {
+  const items: ReviewQueueItem[] = [];
+
+  for (const row of enrichedHoldings) {
+    if (isPortfolioFitOffset(row.portfolioFitLabel)) {
+      items.push({
+        context: `Portfolio fit: ${row.portfolioFitLabel}`,
+        detail:
+          "Deterministic portfolio context suggests this owned position may need review.",
+        href: `/stocks/${row.holding.symbol}`,
+        id: `allocation:${row.holding.symbol}`,
+        kind: "allocation",
+        priority: 10,
+        symbol: row.holding.symbol,
+        title: `${row.holding.symbol} allocation needs review`,
+      });
+    }
+  }
+
+  for (const item of watchlistItems) {
+    const latestPrice = latestPricesBySymbol.get(item.symbol);
+    const latestClose = toFiniteNumber(latestPrice?.close);
+    const targetPrice = toFiniteNumber(item.target_price);
+    const stock = stocksBySymbol.get(item.symbol);
+    const currency = stock?.currency ?? displayCurrency;
+    const latestScore = scoreHistoryBySymbol.get(item.symbol)?.[0] ?? null;
+
+    if (
+      latestClose !== null &&
+      targetPrice !== null &&
+      latestClose <= targetPrice
+    ) {
+      items.push({
+        context: `${formatCurrency(latestClose, currency)} cached close is at or below ${formatCurrency(targetPrice, currency)} target.`,
+        detail:
+          "Your manually tracked target price has been reached or crossed in cached data.",
+        href: `/stocks/${item.symbol}`,
+        id: `target_price:${item.symbol}`,
+        kind: "target_price",
+        priority: 20,
+        symbol: item.symbol,
+        title: `${item.symbol} is at or below target`,
+      });
+    }
+
+    if (
+      isPositiveStockLabel(latestScore?.overall_label ?? null) &&
+      (targetPrice === null || latestClose === null || latestClose <= targetPrice)
+    ) {
+      items.push({
+        context: `Latest deterministic stock label: ${latestScore?.overall_label}`,
+        detail:
+          "A watched stock has a positive deterministic label based on cached scoring inputs.",
+        href: `/stocks/${item.symbol}`,
+        id: `watchlist_opportunity:${item.symbol}`,
+        kind: "watchlist_opportunity",
+        priority: 30,
+        symbol: item.symbol,
+        title: `${item.symbol} watchlist opportunity`,
+      });
+    }
+  }
+
+  for (const [symbol, history] of scoreHistoryBySymbol.entries()) {
+    const [latestScore, previousScore] = history;
+
+    if (!latestScore || !previousScore) {
+      continue;
+    }
+
+    if (latestScore.overall_label === previousScore.overall_label) {
+      continue;
+    }
+
+    const latestRank = getStockLabelRank(latestScore.overall_label);
+    const previousRank = getStockLabelRank(previousScore.overall_label);
+    const direction =
+      latestRank !== null && previousRank !== null
+        ? latestRank < previousRank
+          ? "improved"
+          : "weakened"
+        : "changed";
+
+    items.push({
+      context: `Stock label ${direction} from ${previousScore.overall_label} to ${latestScore.overall_label}.`,
+      detail: `Latest score was calculated ${formatDateTime(latestScore.scored_at)}.`,
+      href: `/stocks/${symbol}`,
+      id: `score_change:${symbol}`,
+      kind: "score_change",
+      priority: direction === "weakened" ? 15 : 40,
+      symbol,
+      title: `${symbol} score changed`,
+    });
+  }
+
+  return items
+    .sort((first, second) => {
+      if (first.priority !== second.priority) {
+        return first.priority - second.priority;
+      }
+
+      return first.symbol.localeCompare(second.symbol);
+    })
+    .slice(0, 8);
+}
+
 function LabelState({
   label,
   missingText,
@@ -275,11 +451,12 @@ export default async function DashboardPage({
         data: [] as Pick<StockPriceRow, "symbol" | "close" | "price_date">[],
         error: null,
       };
-  const stockScoresResult = holdingSymbols.length
+  const stockScoresResult = symbols.length
     ? await supabase
         .from("stock_scores")
         .select("symbol,overall_label,scored_at")
-        .in("symbol", holdingSymbols)
+        .in("symbol", symbols)
+        .eq("user_id", user.id)
         .order("scored_at", { ascending: false })
     : {
         data: [] as Pick<
@@ -333,16 +510,13 @@ export default async function DashboardPage({
     >[],
   );
   const latestStockScoresBySymbol = buildLatestMap(
-    (stockScoresResult.data ?? []) as Pick<
-      StockScoreRow,
-      "symbol" | "overall_label" | "scored_at"
-    >[],
+    (stockScoresResult.data ?? []) as LatestStockScoreRow[],
+  );
+  const scoreHistoryBySymbol = buildStockScoreHistory(
+    (stockScoresResult.data ?? []) as LatestStockScoreRow[],
   );
   const latestPortfolioScoresBySymbol = buildLatestMap(
-    (portfolioScoresResult.data ?? []) as Pick<
-      PortfolioScoreRow,
-      "symbol" | "portfolio_fit_label" | "scored_at"
-    >[],
+    (portfolioScoresResult.data ?? []) as LatestPortfolioScoreRow[],
   );
   const enrichedHoldings = holdings.map((holding) => {
     const latestPrice = latestPricesBySymbol.get(holding.symbol);
@@ -398,6 +572,14 @@ export default async function DashboardPage({
   );
   const latestAITakeSnapshotDate = getAITakeSnapshotDate(latestAITakeSnapshot);
   const latestAITakeFacts = getAITakeFacts(latestAITakeSnapshot);
+  const reviewQueueItems = buildReviewQueueItems({
+    displayCurrency,
+    enrichedHoldings,
+    latestPricesBySymbol,
+    scoreHistoryBySymbol,
+    stocksBySymbol,
+    watchlistItems,
+  });
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -546,6 +728,58 @@ export default async function DashboardPage({
               </p>
             </article>
           </div>
+
+          <section className="border-t border-neutral-800 pt-8">
+            <div>
+              <h2 className="text-lg font-semibold text-white">
+                Review queue
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+                Deterministic attention items from your holdings, watchlist,
+                cached prices, and saved scoring snapshots.
+              </p>
+            </div>
+
+            {reviewQueueItems.length ? (
+              <ol className="mt-5 grid gap-3">
+                {reviewQueueItems.map((item, index) => (
+                  <li
+                    className="rounded-lg border border-neutral-800 bg-neutral-900/70 p-5"
+                    key={item.id}
+                  >
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div>
+                        <p className="text-xs font-medium uppercase tracking-[0.14em] text-neutral-500">
+                          #{index + 1} / {item.kind.replaceAll("_", " ")}
+                        </p>
+                        <h3 className="mt-2 text-base font-semibold text-white">
+                          {item.title}
+                        </h3>
+                      </div>
+                      <Link
+                        className="text-sm font-medium text-emerald-200 underline-offset-4 transition hover:text-emerald-100 hover:underline"
+                        href={item.href}
+                      >
+                        View stock
+                      </Link>
+                    </div>
+                    <p className="mt-3 text-sm leading-6 text-neutral-300">
+                      {item.context}
+                    </p>
+                    <p className="mt-2 text-sm leading-6 text-neutral-500">
+                      {item.detail}
+                    </p>
+                  </li>
+                ))}
+              </ol>
+            ) : (
+              <p className="mt-5 rounded-lg border border-neutral-800 bg-neutral-900/70 px-4 py-3 text-sm text-neutral-400">
+                Nothing is currently flagged for review by the deterministic
+                rules and cached portfolio data. This is informational only and
+                not financial advice.
+              </p>
+            )}
+          </section>
 
           <section className="border-t border-neutral-800 pt-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
