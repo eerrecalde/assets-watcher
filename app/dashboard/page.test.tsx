@@ -42,6 +42,7 @@ type PortfolioScoreRow =
 type StockRow = Database["public"]["Tables"]["stocks"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
+type UserRulesRow = Database["public"]["Tables"]["user_rules"]["Row"];
 type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
 type LatestAITakeRow = Pick<
@@ -73,8 +74,18 @@ type DashboardFixture = {
   prices?: Pick<StockPriceRow, "close" | "price_date" | "symbol">[];
   queryFilters?: QueryFilter[];
   stockScores?: Pick<StockScoreRow, "overall_label" | "scored_at" | "symbol">[];
-  stocks?: Pick<StockRow, "currency" | "name" | "symbol">[];
+  stocks?: Pick<StockRow, "currency" | "name" | "sector" | "symbol">[];
   user?: { email?: string | null; id: string } | null;
+  userRules?: Pick<
+    UserRulesRow,
+    | "max_debt_to_equity"
+    | "max_pb"
+    | "max_pe"
+    | "max_sector_allocation"
+    | "max_single_stock_allocation"
+    | "min_current_ratio"
+    | "min_margin_of_safety"
+  > | null;
   watchlistItems?: WatchlistItemRow[];
 };
 
@@ -198,11 +209,13 @@ describe("DashboardPage", () => {
         {
           currency: "USD",
           name: "Microsoft Corporation",
+          sector: "Technology",
           symbol: "MSFT",
         },
         {
           currency: "USD",
           name: "Apple Inc.",
+          sector: "Technology",
           symbol: "AAPL",
         },
       ],
@@ -356,11 +369,13 @@ describe("DashboardPage", () => {
         {
           currency: "USD",
           name: "Microsoft Corporation",
+          sector: "Technology",
           symbol: "MSFT",
         },
         {
           currency: "USD",
           name: "Apple Inc.",
+          sector: "Technology",
           symbol: "AAPL",
         },
       ],
@@ -368,8 +383,13 @@ describe("DashboardPage", () => {
     });
 
     expect(html).toContain("Review queue");
-    expect(html).toContain("MSFT allocation needs review");
-    expect(html).toContain("Portfolio fit: Concentration Risk");
+    expect(html).toContain("MSFT is above allocation threshold");
+    expect(html).toContain(
+      "MSFT is 38.27% of the portfolio, above the 10% single-stock allocation threshold from the product-plan default.",
+    );
+    expect(html).toContain(
+      "This is an informational concentration flag, not a directive to sell.",
+    );
     expect(html).toContain("AAPL is at or below target");
     expect(html).toContain("$170.00 cached close is at or below $180.00 target.");
     expect(html).toContain("AAPL watchlist opportunity");
@@ -377,6 +397,86 @@ describe("DashboardPage", () => {
     expect(html).toContain("AAPL score changed");
     expect(html).toContain("Stock label improved from Watch to Reasonable.");
     expect(html).toContain("View stock");
+  });
+
+  it("uses stored single-stock allocation thresholds for review flags", async () => {
+    const html = await renderDashboard({
+      holdings: [holding],
+      prices: [
+        {
+          close: "300",
+          price_date: "2026-06-05",
+          symbol: "MSFT",
+        },
+      ],
+      userRules: {
+        max_debt_to_equity: "1",
+        max_pb: "3",
+        max_pe: "20",
+        max_sector_allocation: "30",
+        max_single_stock_allocation: "20",
+        min_current_ratio: "1.5",
+        min_margin_of_safety: "25",
+      },
+    });
+
+    expect(html).toContain("MSFT is above allocation threshold");
+    expect(html).toContain(
+      "MSFT is 37.5% of the portfolio, above the 20% single-stock allocation threshold from your current rule.",
+    );
+  });
+
+  it("does not flag holdings at or below the single-stock allocation threshold", async () => {
+    const html = await renderDashboard({
+      cash: {
+        amount: "400",
+        currency: "USD",
+        updated_at: "2026-06-06T12:00:00.000Z",
+      },
+      holdings: [holding],
+      prices: [
+        {
+          close: "300",
+          price_date: "2026-06-05",
+          symbol: "MSFT",
+        },
+      ],
+      userRules: {
+        max_debt_to_equity: "1",
+        max_pb: "3",
+        max_pe: "20",
+        max_sector_allocation: "30",
+        max_single_stock_allocation: "60",
+        min_current_ratio: "1.5",
+        min_margin_of_safety: "25",
+      },
+      watchlistItems: [],
+    });
+
+    expect(html).not.toContain("MSFT is above allocation threshold");
+    expect(html).toContain("Nothing is currently flagged for review");
+  });
+
+  it("renders an insufficient-data allocation item when prices are missing", async () => {
+    const html = await renderDashboard({
+      cash: {
+        amount: "0",
+        currency: "USD",
+        updated_at: "2026-06-06T12:00:00.000Z",
+      },
+      holdings: [holding],
+      prices: [],
+      watchlistItems: [],
+    });
+
+    expect(html).toContain("MSFT allocation needs more data");
+    expect(html).toContain(
+      "Single-stock allocation could not be calculated against the 10% threshold.",
+    );
+    expect(html).toContain(
+      "Cached price, holding value, cash, or portfolio denominator data is insufficient",
+    );
+    expect(html).not.toContain("MSFT is above allocation threshold");
   });
 
   it("renders a non-advisory empty review queue state", async () => {
@@ -552,6 +652,10 @@ function resolveMaybeSingleFixtureQuery(
         updated_at: "2026-06-06T12:00:00.000Z",
       },
     );
+  }
+
+  if (table === "user_rules") {
+    return result(fixture.userRules ?? null);
   }
 
   return result(null);

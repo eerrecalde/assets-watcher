@@ -18,6 +18,14 @@ import {
   calculateSectorAllocations,
   toFiniteNumber,
 } from "@/lib/portfolios/totals";
+import {
+  DEFAULT_GRAHAM_SCORING_THRESHOLDS,
+  type GrahamScoringThresholds,
+} from "@/lib/scoring/thresholds";
+import {
+  loadUserRuleThresholds,
+  type UserRulesClient,
+} from "@/lib/scoring/user-rules";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/supabase";
 
@@ -236,17 +244,30 @@ function buildReviewQueueItems({
   displayCurrency,
   enrichedHoldings,
   latestPricesBySymbol,
+  maxSingleStockAllocationPercent,
+  cashAmountInput,
+  ruleSource,
   scoreHistoryBySymbol,
   stocksBySymbol,
   watchlistItems,
 }: {
   displayCurrency: string;
   enrichedHoldings: Array<{
+    averageCost: number;
+    costBasis: number;
     holding: HoldingRow;
+    latestClose: number | null;
+    marketValue: number | null;
     portfolioFitLabel: string | null;
+    portfolioValue: number;
+    quantity: number;
     stockLabel: string | null;
+    unrealizedGain: number | null;
   }>;
   latestPricesBySymbol: Map<string, LatestPriceRow>;
+  maxSingleStockAllocationPercent: number;
+  cashAmountInput: string | number | null | undefined;
+  ruleSource: "stored" | "defaults";
   scoreHistoryBySymbol: Map<string, LatestStockScoreRow[]>;
   stocksBySymbol: Map<
     string,
@@ -257,15 +278,58 @@ function buildReviewQueueItems({
   const items: ReviewQueueItem[] = [];
 
   for (const row of enrichedHoldings) {
+    const allocation = calculatePositionAllocation({
+      cashAmountInput,
+      holding: row,
+      holdings: enrichedHoldings,
+    });
+
+    if (
+      allocation.percentage !== null &&
+      allocation.percentage > maxSingleStockAllocationPercent
+    ) {
+      const thresholdContext =
+        ruleSource === "stored" ? "your current rule" : "the product-plan default";
+
+      items.push({
+        context: `${row.holding.symbol} is ${formatNumber(allocation.percentage, 2)}% of the portfolio, above the ${formatNumber(maxSingleStockAllocationPercent, 2)}% single-stock allocation threshold from ${thresholdContext}.`,
+        detail: `Portfolio context uses cached market value ${formatCurrency(row.marketValue, displayCurrency)} and denominator ${formatCurrency(allocation.denominatorValue, displayCurrency)}. This is an informational concentration flag, not a directive to sell.`,
+        href: `/stocks/${row.holding.symbol}`,
+        id: `allocation_threshold:${row.holding.symbol}`,
+        kind: "allocation",
+        priority: 10,
+        symbol: row.holding.symbol,
+        title: `${row.holding.symbol} is above allocation threshold`,
+      });
+
+      continue;
+    }
+
+    if (allocation.status === "insufficient-data") {
+      items.push({
+        context: `Single-stock allocation could not be calculated against the ${formatNumber(maxSingleStockAllocationPercent, 2)}% threshold.`,
+        detail:
+          "Cached price, holding value, cash, or portfolio denominator data is insufficient, so this position is not flagged as above the threshold.",
+        href: `/stocks/${row.holding.symbol}`,
+        id: `allocation_insufficient_data:${row.holding.symbol}`,
+        kind: "allocation",
+        priority: 12,
+        symbol: row.holding.symbol,
+        title: `${row.holding.symbol} allocation needs more data`,
+      });
+
+      continue;
+    }
+
     if (isPortfolioFitOffset(row.portfolioFitLabel)) {
       items.push({
         context: `Portfolio fit: ${row.portfolioFitLabel}`,
         detail:
           "Deterministic portfolio context suggests this owned position may need review.",
         href: `/stocks/${row.holding.symbol}`,
-        id: `allocation:${row.holding.symbol}`,
+        id: `portfolio_fit:${row.holding.symbol}`,
         kind: "allocation",
-        priority: 10,
+        priority: 18,
         symbol: row.holding.symbol,
         title: `${row.holding.symbol} allocation needs review`,
       });
@@ -426,6 +490,10 @@ export default async function DashboardPage({
         .eq("user_id", user.id)
         .order("symbol", { ascending: true })
     : { data: [] as WatchlistItemRow[], error: null };
+  const userRulesResult = await loadUserRuleThresholds(
+    supabase as unknown as UserRulesClient,
+    user.id,
+  );
 
   const holdings = holdingsResult.data ?? [];
   const watchlistItems = watchlistResult.data ?? [];
@@ -544,6 +612,9 @@ export default async function DashboardPage({
     cashResult.data?.amount,
   );
   const cashAmountValue = cashResult.data?.amount;
+  const ruleThresholds: GrahamScoringThresholds = userRulesResult.ok
+    ? userRulesResult.thresholds
+    : DEFAULT_GRAHAM_SCORING_THRESHOLDS;
   const cashAllocation = calculateCashAllocation({
     cashAmountInput: cashAmountValue,
     holdings: enrichedHoldings,
@@ -558,6 +629,7 @@ export default async function DashboardPage({
     Boolean(pricesResult.error) ||
     Boolean(stockScoresResult.error) ||
     Boolean(portfolioScoresResult.error) ||
+    !userRulesResult.ok ||
     Boolean(cashResult.error);
   const hasWatchlistLoadError =
     Boolean(watchlistResult.error) ||
@@ -575,7 +647,11 @@ export default async function DashboardPage({
   const reviewQueueItems = buildReviewQueueItems({
     displayCurrency,
     enrichedHoldings,
+    cashAmountInput: cashAmountValue,
     latestPricesBySymbol,
+    maxSingleStockAllocationPercent:
+      ruleThresholds.maxSingleStockAllocationPercent,
+    ruleSource: userRulesResult.ok ? userRulesResult.source : "defaults",
     scoreHistoryBySymbol,
     stocksBySymbol,
     watchlistItems,
