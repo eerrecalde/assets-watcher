@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_GRAHAM_SCORING_THRESHOLDS } from "@/lib/scoring/thresholds";
 import type { LoadUserRuleThresholdsResult } from "@/lib/scoring/user-rules";
+import type { LoadAlertPreferencesResult } from "./alert-preferences";
 import {
   RulesSettingsPage,
   type RulesSettingsPageDependencies,
@@ -85,6 +86,16 @@ describe("RulesSettingsPage", () => {
     expect(html.match(/max="100"/g)).toHaveLength(3);
     expect(html).toContain("inputMode=\"decimal\"");
     expect(html).toContain("Save allocation thresholds");
+    expect(html).toContain("Alert preferences");
+    expect(html).toContain("Allocation alerts");
+    expect(html).toContain('name="allocation"');
+    expect(html).toContain("Target price alerts");
+    expect(html).toContain('name="target_price"');
+    expect(html).toContain("Score change alerts");
+    expect(html).toContain('name="score_change"');
+    expect(html).toContain("Watchlist opportunity alerts");
+    expect(html).toContain('name="watchlist_opportunity"');
+    expect(html).toContain("Save alert preferences");
     expect(html).toContain("Minimum current ratio");
     expect(html).toContain("2");
     expect(html).toContain("Maximum debt/equity");
@@ -102,6 +113,44 @@ describe("RulesSettingsPage", () => {
     expect(html).toContain('href="/dashboard"');
     expect(html).toContain('href="/holdings"');
     expect(html).toContain('href="/watchlist"');
+  });
+
+  it("renders stored alert preferences for the signed-in user", async () => {
+    const storedPreferences = {
+      ok: true,
+      preferences: {
+        allocation: true,
+        scoreChange: false,
+        targetPrice: false,
+        watchlistOpportunity: true,
+      },
+      source: "stored",
+    } satisfies LoadAlertPreferencesResult;
+    const loadPreferences = vi.fn(async () => storedPreferences);
+
+    const supabase = createSupabaseFixture(user);
+    const html = await renderPage({
+      createSupabaseClient: async () => supabase,
+      loadPreferences,
+    });
+
+    expect(loadPreferences).toHaveBeenCalledWith(supabase, "user-1");
+    expect(html).toContain('name="allocation"');
+    expect(html).toContain('name="watchlist_opportunity"');
+    expect(html).toContain('name="target_price"');
+    expect(html).toContain('name="score_change"');
+    expect(html).toMatch(
+      /<input[^>]*type="checkbox"[^>]*name="allocation"[^>]*checked=""/,
+    );
+    expect(html).toMatch(
+      /<input[^>]*type="checkbox"[^>]*name="watchlist_opportunity"[^>]*checked=""/,
+    );
+    expect(html).not.toMatch(
+      /<input[^>]*type="checkbox"[^>]*name="target_price"[^>]*checked=""/,
+    );
+    expect(html).not.toMatch(
+      /<input[^>]*type="checkbox"[^>]*name="score_change"[^>]*checked=""/,
+    );
   });
 
   it("renders product-plan defaults when no stored rules exist", async () => {
@@ -157,6 +206,25 @@ describe("RulesSettingsPage", () => {
     );
     expect(html).not.toContain("Scoring thresholds");
   });
+
+  it("renders a load error when alert preferences cannot be read", async () => {
+    const errorResult = {
+      error: {
+        code: "alert_preferences_read_failed",
+        message: "Could not load alert preferences: permission denied",
+      },
+      ok: false,
+    } satisfies LoadAlertPreferencesResult;
+
+    const html = await renderPage({
+      loadPreferences: vi.fn(async () => errorResult),
+    });
+
+    expect(html).toContain(
+      "Could not load alert preferences: permission denied",
+    );
+    expect(html).not.toContain("Scoring thresholds");
+  });
 });
 
 async function renderPage(
@@ -167,15 +235,27 @@ async function renderPage(
     source: "defaults",
     thresholds: DEFAULT_GRAHAM_SCORING_THRESHOLDS,
   } satisfies LoadUserRuleThresholdsResult;
+  const defaultPreferences = {
+    ok: true,
+    preferences: {
+      allocation: true,
+      scoreChange: true,
+      targetPrice: true,
+      watchlistOpportunity: true,
+    },
+    source: "defaults",
+  } satisfies LoadAlertPreferencesResult;
 
   return renderToStaticMarkup(
     await RulesSettingsPage({
       createSupabaseClient: async () => createSupabaseFixture(user),
+      loadPreferences: vi.fn(async () => defaultPreferences),
       loadRuleThresholds: vi.fn(async () => defaultResult),
       redirectToLogin: vi.fn((url: string): never => {
         throw new Error(`redirect:${url}`);
       }),
       resetRuleThresholds: vi.fn(async () => {}),
+      updateAlertPreferences: vi.fn(async () => {}),
       updateAllocationThresholds: vi.fn(async () => {}),
       updateValuationThresholds: vi.fn(async () => {}),
       ...overrides,

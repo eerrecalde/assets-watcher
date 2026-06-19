@@ -43,6 +43,8 @@ type StockRow = Database["public"]["Tables"]["stocks"]["Row"];
 type StockPriceRow = Database["public"]["Tables"]["stock_prices"]["Row"];
 type StockScoreRow = Database["public"]["Tables"]["stock_scores"]["Row"];
 type UserRulesRow = Database["public"]["Tables"]["user_rules"]["Row"];
+type AlertPreferencesRow =
+  Database["public"]["Tables"]["alert_preferences"]["Row"];
 type WatchlistItemRow =
   Database["public"]["Tables"]["watchlist_items"]["Row"];
 type LatestAITakeRow = Pick<
@@ -74,6 +76,13 @@ type QueryFilter = {
 
 type DashboardFixture = {
   aiTakes?: LatestAITakeRow[];
+  alertPreferences?: Pick<
+    AlertPreferencesRow,
+    | "allocation_enabled"
+    | "score_change_enabled"
+    | "target_price_enabled"
+    | "watchlist_opportunity_enabled"
+  > | null;
   cash?: Pick<PortfolioCashRow, "amount" | "currency" | "updated_at"> | null;
   holdings?: HoldingRow[];
   portfolio?: Pick<PortfolioRow, "base_currency" | "id" | "name">;
@@ -457,6 +466,86 @@ describe("DashboardPage", () => {
       "Portfolio rule portfolio_fit.position_allocation changed from pass to warning.",
     );
     expect(html).toContain("View stock");
+  });
+
+  it("hides disabled alert categories from the review queue", async () => {
+    const html = await renderDashboard({
+      alertPreferences: {
+        allocation_enabled: false,
+        score_change_enabled: false,
+        target_price_enabled: false,
+        watchlist_opportunity_enabled: true,
+      },
+      holdings: [holding],
+      portfolioScores: [
+        {
+          portfolio_fit_label: "Concentration Risk",
+          explanation_json: createPortfolioScoreExplanation({
+            ruleId: "portfolio_fit.position_allocation",
+            status: "warning",
+            summary:
+              "Position allocation is above the maximum single-stock threshold.",
+          }),
+          scored_at: "2026-06-06T10:00:00.000Z",
+          symbol: "MSFT",
+        },
+        {
+          portfolio_fit_label: "Balanced",
+          explanation_json: createPortfolioScoreExplanation({
+            ruleId: "portfolio_fit.position_allocation",
+            status: "pass",
+            summary:
+              "Position allocation was within the maximum single-stock threshold.",
+          }),
+          scored_at: "2026-06-05T10:00:00.000Z",
+          symbol: "MSFT",
+        },
+      ],
+      prices: [
+        {
+          close: "310",
+          price_date: "2026-06-05",
+          symbol: "MSFT",
+        },
+        {
+          close: "170",
+          price_date: "2026-06-05",
+          symbol: "AAPL",
+        },
+      ],
+      stockScores: [
+        {
+          explanation_json: createStockScoreExplanation({
+            marginOfSafetyPercent: 28.4,
+            minMarginOfSafetyPercent: 25,
+            ruleId: "valuation.pe_ratio",
+            status: "pass",
+            summary: "P/E is within the configured threshold.",
+          }),
+          overall_label: "Reasonable",
+          scored_at: "2026-06-07T09:00:00.000Z",
+          symbol: "AAPL",
+        },
+        {
+          explanation_json: createStockScoreExplanation({
+            ruleId: "valuation.pe_ratio",
+            status: "fail",
+            summary: "P/E exceeded the configured threshold.",
+          }),
+          overall_label: "Watch",
+          scored_at: "2026-06-06T09:00:00.000Z",
+          symbol: "AAPL",
+        },
+      ],
+      watchlistItems: [watchlistItem],
+    });
+
+    expect(html).toContain("Configure alert preferences");
+    expect(html).toContain("AAPL watchlist opportunity");
+    expect(html).not.toContain("MSFT is above allocation threshold");
+    expect(html).not.toContain("AAPL is at or below target");
+    expect(html).not.toContain("AAPL stock score changed");
+    expect(html).not.toContain("MSFT portfolio-fit score changed");
   });
 
   it("does not flag score changes when there is no prior comparable snapshot", async () => {
@@ -855,6 +944,10 @@ function resolveMaybeSingleFixtureQuery(
 
   if (table === "user_rules") {
     return result(fixture.userRules ?? null);
+  }
+
+  if (table === "alert_preferences") {
+    return result(fixture.alertPreferences ?? null);
   }
 
   return result(null);
