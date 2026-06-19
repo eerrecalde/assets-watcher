@@ -26,6 +26,7 @@ import {
   loadUserRuleThresholds,
   type UserRulesClient,
 } from "@/lib/scoring/user-rules";
+import { classifyStockDetailPriceFreshness } from "@/lib/stocks/detail";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/supabase";
 
@@ -121,6 +122,10 @@ function formatDate(value: string) {
   return new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
   }).format(new Date(value));
+}
+
+function formatFreshnessStatus(status: string) {
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 function formatOptionalCurrency(
@@ -344,15 +349,35 @@ function buildReviewQueueItems({
     const currency = stock?.currency ?? displayCurrency;
     const latestScore = scoreHistoryBySymbol.get(item.symbol)?.[0] ?? null;
 
+    if (targetPrice !== null && latestClose === null) {
+      items.push({
+        context: `Target price is ${formatCurrency(targetPrice, currency)}, but no usable latest cached price is available.`,
+        detail:
+          "The target-price rule cannot compare this watchlist item until cached price data exists. This is an informational data-quality flag, not a buy instruction.",
+        href: `/stocks/${item.symbol}`,
+        id: `target_price_missing_data:${item.symbol}`,
+        kind: "target_price",
+        priority: 22,
+        symbol: item.symbol,
+        title: `${item.symbol} target price needs cached price data`,
+      });
+    }
+
     if (
       latestClose !== null &&
       targetPrice !== null &&
       latestClose <= targetPrice
     ) {
+      const freshness = classifyStockDetailPriceFreshness(
+        latestPrice?.price_date,
+      );
+      const asOfText = freshness.asOfDate
+        ? formatDate(freshness.asOfDate)
+        : "Unavailable";
+
       items.push({
-        context: `${formatCurrency(latestClose, currency)} cached close is at or below ${formatCurrency(targetPrice, currency)} target.`,
-        detail:
-          "Your manually tracked target price has been reached or crossed in cached data.",
+        context: `${formatCurrency(latestClose, currency)} latest cached close is at or below the ${formatCurrency(targetPrice, currency)} target price. As of ${asOfText}. Freshness: ${formatFreshnessStatus(freshness.status)}.`,
+        detail: `${freshness.reason} This is an educational watchlist flag from cached data, not a buy instruction.`,
         href: `/stocks/${item.symbol}`,
         id: `target_price:${item.symbol}`,
         kind: "target_price",

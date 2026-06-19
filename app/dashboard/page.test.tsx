@@ -391,12 +391,66 @@ describe("DashboardPage", () => {
       "This is an informational concentration flag, not a directive to sell.",
     );
     expect(html).toContain("AAPL is at or below target");
-    expect(html).toContain("$170.00 cached close is at or below $180.00 target.");
+    expect(html).toContain(
+      "$170.00 latest cached close is at or below the $180.00 target price. As of Jun 5, 2026. Freshness: Stale.",
+    );
+    expect(html).toContain("Latest cached close is older than 3 calendar days.");
+    expect(html).toContain("not a buy instruction");
     expect(html).toContain("AAPL watchlist opportunity");
     expect(html).toContain("Latest deterministic stock label: Reasonable");
     expect(html).toContain("AAPL score changed");
     expect(html).toContain("Stock label improved from Watch to Reasonable.");
     expect(html).toContain("View stock");
+  });
+
+  it("renders an explicit review item when a target price cannot be compared without cached price data", async () => {
+    const html = await renderDashboard({
+      holdings: [],
+      prices: [],
+      stocks: [
+        {
+          currency: "USD",
+          name: "Apple Inc.",
+          sector: "Technology",
+          symbol: "AAPL",
+        },
+      ],
+      watchlistItems: [watchlistItem],
+    });
+
+    expect(html).toContain("AAPL target price needs cached price data");
+    expect(html).toContain(
+      "Target price is $180.00, but no usable latest cached price is available.",
+    );
+    expect(html).toContain(
+      "The target-price rule cannot compare this watchlist item until cached price data exists.",
+    );
+    expect(html).toContain("not a buy instruction");
+  });
+
+  it("does not flag watchlist items for the target-price rule when no target price exists", async () => {
+    const noTargetItem: WatchlistItemRow = {
+      ...watchlistItem,
+      id: "watchlist-no-target",
+      target_price: null,
+    };
+
+    const html = await renderDashboard({
+      holdings: [],
+      prices: [
+        {
+          close: "150",
+          price_date: "2026-06-19",
+          symbol: "AAPL",
+        },
+      ],
+      stockScores: [],
+      watchlistItems: [noTargetItem],
+    });
+
+    expect(html).not.toContain("AAPL is at or below target");
+    expect(html).not.toContain("AAPL target price needs cached price data");
+    expect(html).toContain("Nothing is currently flagged for review");
   });
 
   it("uses stored single-stock allocation thresholds for review flags", async () => {
