@@ -49,11 +49,11 @@ type LatestAITakeRow = Pick<
 type LatestPriceRow = Pick<StockPriceRow, "symbol" | "close" | "price_date">;
 type LatestStockScoreRow = Pick<
   StockScoreRow,
-  "symbol" | "overall_label" | "scored_at"
+  "explanation_json" | "symbol" | "overall_label" | "scored_at"
 >;
 type LatestPortfolioScoreRow = Pick<
   PortfolioScoreRow,
-  "symbol" | "portfolio_fit_label" | "scored_at"
+  "explanation_json" | "symbol" | "portfolio_fit_label" | "scored_at"
 >;
 type ReviewQueueItemKind =
   | "allocation"
@@ -245,11 +245,119 @@ function buildStockScoreHistory(rows: LatestStockScoreRow[]) {
   return history;
 }
 
+function buildPortfolioScoreHistory(rows: LatestPortfolioScoreRow[]) {
+  const history = new Map<string, LatestPortfolioScoreRow[]>();
+
+  for (const row of rows) {
+    const rowsForSymbol = history.get(row.symbol) ?? [];
+    rowsForSymbol.push(row);
+    history.set(row.symbol, rowsForSymbol);
+  }
+
+  return history;
+}
+
+type SnapshotRuleCheck = {
+  id: string;
+  status: string;
+  summary: string | null;
+};
+
+function getRuleSummary(value: unknown) {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  const explanation = value.explanation;
+
+  if (!isRecord(explanation) || typeof explanation.summary !== "string") {
+    return null;
+  }
+
+  return explanation.summary;
+}
+
+function parseRuleCheck(value: unknown): SnapshotRuleCheck | null {
+  if (
+    !isRecord(value) ||
+    typeof value.id !== "string" ||
+    typeof value.status !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    id: value.id,
+    status: value.status,
+    summary: getRuleSummary(value),
+  };
+}
+
+function getStockSnapshotRuleChecks(value: unknown) {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.result) ||
+    !isRecord(value.result.layers)
+  ) {
+    return [];
+  }
+
+  return Object.values(value.result.layers)
+    .flatMap((layer) => {
+      if (!isRecord(layer) || !Array.isArray(layer.ruleChecks)) {
+        return [];
+      }
+
+      return layer.ruleChecks;
+    })
+    .map(parseRuleCheck)
+    .filter((ruleCheck): ruleCheck is SnapshotRuleCheck => ruleCheck !== null);
+}
+
+function getPortfolioSnapshotRuleChecks(value: unknown) {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.result) ||
+    !Array.isArray(value.result.ruleChecks)
+  ) {
+    return [];
+  }
+
+  return value.result.ruleChecks
+    .map(parseRuleCheck)
+    .filter((ruleCheck): ruleCheck is SnapshotRuleCheck => ruleCheck !== null);
+}
+
+function getFirstRuleOutcomeChange(
+  latestChecks: SnapshotRuleCheck[],
+  previousChecks: SnapshotRuleCheck[],
+) {
+  const previousById = new Map(
+    previousChecks.map((ruleCheck) => [ruleCheck.id, ruleCheck]),
+  );
+
+  for (const latestCheck of latestChecks) {
+    const previousCheck = previousById.get(latestCheck.id);
+
+    if (!previousCheck || previousCheck.status === latestCheck.status) {
+      continue;
+    }
+
+    return {
+      current: latestCheck,
+      previous: previousCheck,
+    };
+  }
+
+  return null;
+}
+
 function buildReviewQueueItems({
   displayCurrency,
   enrichedHoldings,
   latestPricesBySymbol,
   maxSingleStockAllocationPercent,
+  portfolioScoreHistoryBySymbol,
   cashAmountInput,
   ruleSource,
   scoreHistoryBySymbol,
@@ -271,6 +379,7 @@ function buildReviewQueueItems({
   }>;
   latestPricesBySymbol: Map<string, LatestPriceRow>;
   maxSingleStockAllocationPercent: number;
+  portfolioScoreHistoryBySymbol: Map<string, LatestPortfolioScoreRow[]>;
   cashAmountInput: string | number | null | undefined;
   ruleSource: "stored" | "defaults";
   scoreHistoryBySymbol: Map<string, LatestStockScoreRow[]>;
@@ -412,29 +521,92 @@ function buildReviewQueueItems({
       continue;
     }
 
-    if (latestScore.overall_label === previousScore.overall_label) {
+    if (latestScore.overall_label !== previousScore.overall_label) {
+      const latestRank = getStockLabelRank(latestScore.overall_label);
+      const previousRank = getStockLabelRank(previousScore.overall_label);
+      const direction =
+        latestRank !== null && previousRank !== null
+          ? latestRank < previousRank
+            ? "improved"
+            : "weakened"
+          : "changed";
+
+      items.push({
+        context: `Stock label ${direction} from ${previousScore.overall_label} to ${latestScore.overall_label}.`,
+        detail: `Previous snapshot: ${formatDateTime(previousScore.scored_at)}. Current snapshot: ${formatDateTime(latestScore.scored_at)}. This is grounded in deterministic stock scoring and is not a recommendation.`,
+        href: `/stocks/${symbol}`,
+        id: `stock_label_change:${symbol}`,
+        kind: "score_change",
+        priority: direction === "weakened" ? 15 : 40,
+        symbol,
+        title: `${symbol} stock score changed`,
+      });
+    }
+
+    const ruleChange = getFirstRuleOutcomeChange(
+      getStockSnapshotRuleChecks(latestScore.explanation_json),
+      getStockSnapshotRuleChecks(previousScore.explanation_json),
+    );
+
+    if (ruleChange) {
+      items.push({
+        context: `Rule ${ruleChange.current.id} changed from ${ruleChange.previous.status} to ${ruleChange.current.status}.`,
+        detail: `${ruleChange.current.summary ?? "The latest deterministic explanation did not include a concise rule reason."} Previous snapshot: ${formatDateTime(previousScore.scored_at)}. Current snapshot: ${formatDateTime(latestScore.scored_at)}.`,
+        href: `/stocks/${symbol}`,
+        id: `stock_rule_change:${symbol}:${ruleChange.current.id}`,
+        kind: "score_change",
+        priority: ["fail", "warning", "insufficient_data"].includes(
+          ruleChange.current.status,
+        )
+          ? 16
+          : 42,
+        symbol,
+        title: `${symbol} stock rule outcome changed`,
+      });
+    }
+  }
+
+  for (const [symbol, history] of portfolioScoreHistoryBySymbol.entries()) {
+    const [latestScore, previousScore] = history;
+
+    if (!latestScore || !previousScore) {
       continue;
     }
 
-    const latestRank = getStockLabelRank(latestScore.overall_label);
-    const previousRank = getStockLabelRank(previousScore.overall_label);
-    const direction =
-      latestRank !== null && previousRank !== null
-        ? latestRank < previousRank
-          ? "improved"
-          : "weakened"
-        : "changed";
+    if (latestScore.portfolio_fit_label !== previousScore.portfolio_fit_label) {
+      items.push({
+        context: `Portfolio-fit label changed from ${previousScore.portfolio_fit_label} to ${latestScore.portfolio_fit_label}.`,
+        detail: `Previous snapshot: ${formatDateTime(previousScore.scored_at)}. Current snapshot: ${formatDateTime(latestScore.scored_at)}. This reflects deterministic portfolio context and is not a trading instruction.`,
+        href: `/stocks/${symbol}`,
+        id: `portfolio_label_change:${symbol}`,
+        kind: "score_change",
+        priority: isPortfolioFitOffset(latestScore.portfolio_fit_label) ? 14 : 41,
+        symbol,
+        title: `${symbol} portfolio-fit score changed`,
+      });
+    }
 
-    items.push({
-      context: `Stock label ${direction} from ${previousScore.overall_label} to ${latestScore.overall_label}.`,
-      detail: `Latest score was calculated ${formatDateTime(latestScore.scored_at)}.`,
-      href: `/stocks/${symbol}`,
-      id: `score_change:${symbol}`,
-      kind: "score_change",
-      priority: direction === "weakened" ? 15 : 40,
-      symbol,
-      title: `${symbol} score changed`,
-    });
+    const ruleChange = getFirstRuleOutcomeChange(
+      getPortfolioSnapshotRuleChecks(latestScore.explanation_json),
+      getPortfolioSnapshotRuleChecks(previousScore.explanation_json),
+    );
+
+    if (ruleChange) {
+      items.push({
+        context: `Portfolio rule ${ruleChange.current.id} changed from ${ruleChange.previous.status} to ${ruleChange.current.status}.`,
+        detail: `${ruleChange.current.summary ?? "The latest deterministic explanation did not include a concise rule reason."} Previous snapshot: ${formatDateTime(previousScore.scored_at)}. Current snapshot: ${formatDateTime(latestScore.scored_at)}.`,
+        href: `/stocks/${symbol}`,
+        id: `portfolio_rule_change:${symbol}:${ruleChange.current.id}`,
+        kind: "score_change",
+        priority: ["fail", "warning", "insufficient_data"].includes(
+          ruleChange.current.status,
+        )
+          ? 17
+          : 43,
+        symbol,
+        title: `${symbol} portfolio rule outcome changed`,
+      });
+    }
   }
 
   return items
@@ -547,14 +719,14 @@ export default async function DashboardPage({
   const stockScoresResult = symbols.length
     ? await supabase
         .from("stock_scores")
-        .select("symbol,overall_label,scored_at")
+        .select("symbol,overall_label,scored_at,explanation_json")
         .in("symbol", symbols)
         .eq("user_id", user.id)
         .order("scored_at", { ascending: false })
     : {
         data: [] as Pick<
           StockScoreRow,
-          "symbol" | "overall_label" | "scored_at"
+          "symbol" | "overall_label" | "scored_at" | "explanation_json"
         >[],
         error: null,
       };
@@ -562,14 +734,17 @@ export default async function DashboardPage({
     portfolio && holdingSymbols.length
       ? await supabase
           .from("portfolio_stock_scores")
-          .select("symbol,portfolio_fit_label,scored_at")
+          .select("symbol,portfolio_fit_label,scored_at,explanation_json")
           .eq("portfolio_id", portfolio.id)
           .in("symbol", holdingSymbols)
           .order("scored_at", { ascending: false })
       : {
           data: [] as Pick<
             PortfolioScoreRow,
-            "symbol" | "portfolio_fit_label" | "scored_at"
+            | "symbol"
+            | "portfolio_fit_label"
+            | "scored_at"
+            | "explanation_json"
           >[],
           error: null,
         };
@@ -607,6 +782,9 @@ export default async function DashboardPage({
   );
   const scoreHistoryBySymbol = buildStockScoreHistory(
     (stockScoresResult.data ?? []) as LatestStockScoreRow[],
+  );
+  const portfolioScoreHistoryBySymbol = buildPortfolioScoreHistory(
+    (portfolioScoresResult.data ?? []) as LatestPortfolioScoreRow[],
   );
   const latestPortfolioScoresBySymbol = buildLatestMap(
     (portfolioScoresResult.data ?? []) as LatestPortfolioScoreRow[],
@@ -676,6 +854,7 @@ export default async function DashboardPage({
     latestPricesBySymbol,
     maxSingleStockAllocationPercent:
       ruleThresholds.maxSingleStockAllocationPercent,
+    portfolioScoreHistoryBySymbol,
     ruleSource: userRulesResult.ok ? userRulesResult.source : "defaults",
     scoreHistoryBySymbol,
     stocksBySymbol,

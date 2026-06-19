@@ -49,6 +49,16 @@ type LatestAITakeRow = Pick<
   AITakeRow,
   "created_at" | "input_snapshot_json" | "model" | "output_markdown" | "provider"
 >;
+type PortfolioScoreFixtureRow = Pick<
+  PortfolioScoreRow,
+  "portfolio_fit_label" | "scored_at" | "symbol"
+> &
+  Partial<Pick<PortfolioScoreRow, "explanation_json">>;
+type StockScoreFixtureRow = Pick<
+  StockScoreRow,
+  "overall_label" | "scored_at" | "symbol"
+> &
+  Partial<Pick<StockScoreRow, "explanation_json">>;
 
 type QueryError = { message: string } | null;
 type QueryResult<T> = {
@@ -67,13 +77,10 @@ type DashboardFixture = {
   cash?: Pick<PortfolioCashRow, "amount" | "currency" | "updated_at"> | null;
   holdings?: HoldingRow[];
   portfolio?: Pick<PortfolioRow, "base_currency" | "id" | "name">;
-  portfolioScores?: Pick<
-    PortfolioScoreRow,
-    "portfolio_fit_label" | "scored_at" | "symbol"
-  >[];
+  portfolioScores?: PortfolioScoreFixtureRow[];
   prices?: Pick<StockPriceRow, "close" | "price_date" | "symbol">[];
   queryFilters?: QueryFilter[];
-  stockScores?: Pick<StockScoreRow, "overall_label" | "scored_at" | "symbol">[];
+  stockScores?: StockScoreFixtureRow[];
   stocks?: Pick<StockRow, "currency" | "name" | "sector" | "symbol">[];
   user?: { email?: string | null; id: string } | null;
   userRules?: Pick<
@@ -337,7 +344,24 @@ describe("DashboardPage", () => {
       portfolioScores: [
         {
           portfolio_fit_label: "Concentration Risk",
+          explanation_json: createPortfolioScoreExplanation({
+            ruleId: "portfolio_fit.position_allocation",
+            status: "warning",
+            summary:
+              "Position allocation is above the maximum single-stock threshold.",
+          }),
           scored_at: "2026-06-06T10:00:00.000Z",
+          symbol: "MSFT",
+        },
+        {
+          portfolio_fit_label: "Balanced",
+          explanation_json: createPortfolioScoreExplanation({
+            ruleId: "portfolio_fit.position_allocation",
+            status: "pass",
+            summary:
+              "Position allocation was within the maximum single-stock threshold.",
+          }),
+          scored_at: "2026-06-05T10:00:00.000Z",
           symbol: "MSFT",
         },
       ],
@@ -355,11 +379,21 @@ describe("DashboardPage", () => {
       ],
       stockScores: [
         {
+          explanation_json: createStockScoreExplanation({
+            ruleId: "valuation.pe_ratio",
+            status: "pass",
+            summary: "P/E is within the configured threshold.",
+          }),
           overall_label: "Reasonable",
           scored_at: "2026-06-07T09:00:00.000Z",
           symbol: "AAPL",
         },
         {
+          explanation_json: createStockScoreExplanation({
+            ruleId: "valuation.pe_ratio",
+            status: "fail",
+            summary: "P/E exceeded the configured threshold.",
+          }),
           overall_label: "Watch",
           scored_at: "2026-06-06T09:00:00.000Z",
           symbol: "AAPL",
@@ -398,9 +432,74 @@ describe("DashboardPage", () => {
     expect(html).toContain("not a buy instruction");
     expect(html).toContain("AAPL watchlist opportunity");
     expect(html).toContain("Latest deterministic stock label: Reasonable");
-    expect(html).toContain("AAPL score changed");
+    expect(html).toContain("AAPL stock score changed");
     expect(html).toContain("Stock label improved from Watch to Reasonable.");
+    expect(html).toContain("AAPL stock rule outcome changed");
+    expect(html).toContain("Rule valuation.pe_ratio changed from fail to pass.");
+    expect(html).toContain("Previous snapshot: Jun 6, 2026");
+    expect(html).toContain("Current snapshot: Jun 7, 2026");
+    expect(html).toContain("MSFT portfolio-fit score changed");
+    expect(html).toContain(
+      "Portfolio-fit label changed from Balanced to Concentration Risk.",
+    );
+    expect(html).toContain("MSFT portfolio rule outcome changed");
+    expect(html).toContain(
+      "Portfolio rule portfolio_fit.position_allocation changed from pass to warning.",
+    );
     expect(html).toContain("View stock");
+  });
+
+  it("does not flag score changes when there is no prior comparable snapshot", async () => {
+    const html = await renderDashboard({
+      holdings: [holding],
+      portfolioScores: [
+        {
+          portfolio_fit_label: "Concentration Risk",
+          explanation_json: createPortfolioScoreExplanation({
+            ruleId: "portfolio_fit.position_allocation",
+            status: "warning",
+            summary:
+              "Position allocation is above the maximum single-stock threshold.",
+          }),
+          scored_at: "2026-06-07T10:00:00.000Z",
+          symbol: "MSFT",
+        },
+      ],
+      prices: [
+        {
+          close: "300",
+          price_date: "2026-06-05",
+          symbol: "MSFT",
+        },
+      ],
+      stockScores: [
+        {
+          explanation_json: createStockScoreExplanation({
+            ruleId: "valuation.pe_ratio",
+            status: "fail",
+            summary: "P/E exceeded the configured threshold.",
+          }),
+          overall_label: "Expensive",
+          scored_at: "2026-06-07T09:00:00.000Z",
+          symbol: "MSFT",
+        },
+      ],
+      userRules: {
+        max_debt_to_equity: "1",
+        max_pb: "3",
+        max_pe: "20",
+        max_sector_allocation: "30",
+        max_single_stock_allocation: "60",
+        min_current_ratio: "1.5",
+        min_margin_of_safety: "25",
+      },
+      watchlistItems: [],
+    });
+
+    expect(html).not.toContain("MSFT stock score changed");
+    expect(html).not.toContain("MSFT stock rule outcome changed");
+    expect(html).not.toContain("MSFT portfolio-fit score changed");
+    expect(html).not.toContain("MSFT portfolio rule outcome changed");
   });
 
   it("renders an explicit review item when a target price cannot be compared without cached price data", async () => {
@@ -754,5 +853,59 @@ function result<T>(data: T): QueryResult<T> {
   return {
     data,
     error: null,
+  };
+}
+
+function createStockScoreExplanation({
+  ruleId,
+  status,
+  summary,
+}: {
+  ruleId: string;
+  status: string;
+  summary: string;
+}): Json {
+  return {
+    result: {
+      layers: {
+        valuation: {
+          ruleChecks: [
+            {
+              explanation: {
+                summary,
+              },
+              id: ruleId,
+              status,
+            },
+          ],
+        },
+      },
+    },
+    schemaVersion: 1,
+  };
+}
+
+function createPortfolioScoreExplanation({
+  ruleId,
+  status,
+  summary,
+}: {
+  ruleId: string;
+  status: string;
+  summary: string;
+}): Json {
+  return {
+    result: {
+      ruleChecks: [
+        {
+          explanation: {
+            summary,
+          },
+          id: ruleId,
+          status,
+        },
+      ],
+    },
+    schemaVersion: 1,
   };
 }
