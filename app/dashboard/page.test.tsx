@@ -380,6 +380,8 @@ describe("DashboardPage", () => {
       stockScores: [
         {
           explanation_json: createStockScoreExplanation({
+            marginOfSafetyPercent: 28.4,
+            minMarginOfSafetyPercent: 25,
             ruleId: "valuation.pe_ratio",
             status: "pass",
             summary: "P/E is within the configured threshold.",
@@ -431,7 +433,15 @@ describe("DashboardPage", () => {
     expect(html).toContain("Latest cached close is older than 3 calendar days.");
     expect(html).toContain("not a buy instruction");
     expect(html).toContain("AAPL watchlist opportunity");
-    expect(html).toContain("Latest deterministic stock label: Reasonable");
+    expect(html).toContain(
+      "Latest deterministic stock label: Reasonable. Margin of safety: 28.4%. Minimum threshold: 25%.",
+    );
+    expect(html).toContain(
+      "Latest cached close: $170.00 as of Jun 5, 2026. Freshness: Stale.",
+    );
+    expect(html).toContain(
+      "Target price: $180.00; current cached price is at or below that target.",
+    );
     expect(html).toContain("AAPL stock score changed");
     expect(html).toContain("Stock label improved from Watch to Reasonable.");
     expect(html).toContain("AAPL stock rule outcome changed");
@@ -550,6 +560,42 @@ describe("DashboardPage", () => {
     expect(html).not.toContain("AAPL is at or below target");
     expect(html).not.toContain("AAPL target price needs cached price data");
     expect(html).toContain("Nothing is currently flagged for review");
+  });
+
+  it("represents missing price context on watchlist opportunity items", async () => {
+    const noTargetItem: WatchlistItemRow = {
+      ...watchlistItem,
+      id: "watchlist-no-target",
+      target_price: null,
+    };
+
+    const html = await renderDashboard({
+      holdings: [],
+      prices: [],
+      stockScores: [
+        {
+          explanation_json: createStockScoreExplanation({
+            ruleId: "valuation.margin_of_safety",
+            status: "pass",
+            summary:
+              "Cached price is below the Graham Number with the required margin of safety.",
+          }),
+          overall_label: "Attractive",
+          scored_at: "2026-06-07T09:00:00.000Z",
+          symbol: "AAPL",
+        },
+      ],
+      watchlistItems: [noTargetItem],
+    });
+
+    expect(html).toContain("AAPL watchlist opportunity");
+    expect(html).toContain(
+      "Latest deterministic stock label: Attractive. Margin of safety: unavailable.",
+    );
+    expect(html).toContain("Latest cached close: unavailable.");
+    expect(html).toContain("Target price: not set.");
+    expect(html).toContain("No usable latest cached close date is available.");
+    expect(html).toContain("not a buy instruction");
   });
 
   it("uses stored single-stock allocation thresholds for review flags", async () => {
@@ -857,10 +903,14 @@ function result<T>(data: T): QueryResult<T> {
 }
 
 function createStockScoreExplanation({
+  marginOfSafetyPercent,
+  minMarginOfSafetyPercent,
   ruleId,
   status,
   summary,
 }: {
+  marginOfSafetyPercent?: number;
+  minMarginOfSafetyPercent?: number;
   ruleId: string;
   status: string;
   summary: string;
@@ -882,6 +932,25 @@ function createStockScoreExplanation({
       },
     },
     schemaVersion: 1,
+    ...(marginOfSafetyPercent === undefined
+      ? {}
+      : {
+          input: {
+            valuation: {
+              marginOfSafetyPercent: {
+                availability: "available",
+                value: marginOfSafetyPercent,
+              },
+            },
+          },
+        }),
+    ...(minMarginOfSafetyPercent === undefined
+      ? {}
+      : {
+          thresholds: {
+            minMarginOfSafetyPercent,
+          },
+        }),
   };
 }
 

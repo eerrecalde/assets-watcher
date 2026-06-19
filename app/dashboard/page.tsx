@@ -233,6 +233,69 @@ function getStockLabelRank(label: string | null) {
   return ranks.get(label ?? "") ?? null;
 }
 
+function extractMarginOfSafetyPercent(value: unknown) {
+  const directValue = extractFiniteNumberFromKeys(value, [
+    "margin_of_safety_percent",
+    "marginOfSafetyPercent",
+    "margin_of_safety",
+    "marginOfSafety",
+  ]);
+
+  if (directValue !== null) {
+    return directValue;
+  }
+
+  if (!isRecord(value) || !isRecord(value.input)) {
+    return null;
+  }
+
+  const valuation = value.input.valuation;
+
+  if (!isRecord(valuation)) {
+    return null;
+  }
+
+  const marginDataPoint = valuation.marginOfSafetyPercent;
+
+  if (!isRecord(marginDataPoint)) {
+    return null;
+  }
+
+  return toFiniteNumber(marginDataPoint.value as string | number | null);
+}
+
+function extractMinimumMarginOfSafetyThreshold(value: unknown) {
+  if (!isRecord(value) || !isRecord(value.thresholds)) {
+    return null;
+  }
+
+  return toFiniteNumber(
+    value.thresholds.minMarginOfSafetyPercent as string | number | null,
+  );
+}
+
+function extractFiniteNumberFromKeys(value: unknown, keys: string[]) {
+  if (!isRecord(value)) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const numberValue = toFiniteNumber(
+      value[key] as string | number | null | undefined,
+    );
+
+    if (numberValue !== null) {
+      return numberValue;
+    }
+  }
+
+  return null;
+}
+
+function formatPercentContext(value: number | null, fallback: string) {
+  return value === null ? fallback : `${formatNumber(value, 2)}%`;
+}
+
 function buildStockScoreHistory(rows: LatestStockScoreRow[]) {
   const history = new Map<string, LatestStockScoreRow[]>();
 
@@ -457,6 +520,12 @@ function buildReviewQueueItems({
     const stock = stocksBySymbol.get(item.symbol);
     const currency = stock?.currency ?? displayCurrency;
     const latestScore = scoreHistoryBySymbol.get(item.symbol)?.[0] ?? null;
+    const freshness = classifyStockDetailPriceFreshness(
+      latestPrice?.price_date,
+    );
+    const asOfText = freshness.asOfDate
+      ? formatDate(freshness.asOfDate)
+      : "Unavailable";
 
     if (targetPrice !== null && latestClose === null) {
       items.push({
@@ -477,13 +546,6 @@ function buildReviewQueueItems({
       targetPrice !== null &&
       latestClose <= targetPrice
     ) {
-      const freshness = classifyStockDetailPriceFreshness(
-        latestPrice?.price_date,
-      );
-      const asOfText = freshness.asOfDate
-        ? formatDate(freshness.asOfDate)
-        : "Unavailable";
-
       items.push({
         context: `${formatCurrency(latestClose, currency)} latest cached close is at or below the ${formatCurrency(targetPrice, currency)} target price. As of ${asOfText}. Freshness: ${formatFreshnessStatus(freshness.status)}.`,
         detail: `${freshness.reason} This is an educational watchlist flag from cached data, not a buy instruction.`,
@@ -500,10 +562,29 @@ function buildReviewQueueItems({
       isPositiveStockLabel(latestScore?.overall_label ?? null) &&
       (targetPrice === null || latestClose === null || latestClose <= targetPrice)
     ) {
+      const marginOfSafetyPercent = extractMarginOfSafetyPercent(
+        latestScore?.explanation_json,
+      );
+      const minimumMarginOfSafetyThreshold =
+        extractMinimumMarginOfSafetyThreshold(latestScore?.explanation_json);
+      const priceContext =
+        latestClose === null
+          ? "Latest cached close: unavailable."
+          : `Latest cached close: ${formatCurrency(latestClose, currency)} as of ${asOfText}. Freshness: ${formatFreshnessStatus(freshness.status)}.`;
+      const targetContext =
+        targetPrice === null
+          ? "Target price: not set."
+          : latestClose === null
+            ? `Target price: ${formatCurrency(targetPrice, currency)}, but it cannot be compared without a usable latest cached close.`
+            : `Target price: ${formatCurrency(targetPrice, currency)}; current cached price is ${latestClose <= targetPrice ? "at or below" : "above"} that target.`;
+      const thresholdText =
+        minimumMarginOfSafetyThreshold === null
+          ? ""
+          : ` Minimum threshold: ${formatPercentContext(minimumMarginOfSafetyThreshold, "unavailable")}.`;
+
       items.push({
-        context: `Latest deterministic stock label: ${latestScore?.overall_label}`,
-        detail:
-          "A watched stock has a positive deterministic label based on cached scoring inputs.",
+        context: `Latest deterministic stock label: ${latestScore?.overall_label}. Margin of safety: ${formatPercentContext(marginOfSafetyPercent, "unavailable")}.${thresholdText}`,
+        detail: `${priceContext} ${targetContext} ${freshness.reason} This educational watchlist opportunity is based on deterministic labels and cached data, not a buy instruction.`,
         href: `/stocks/${item.symbol}`,
         id: `watchlist_opportunity:${item.symbol}`,
         kind: "watchlist_opportunity",
