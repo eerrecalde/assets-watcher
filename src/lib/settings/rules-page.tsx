@@ -9,9 +9,16 @@ import {
   type LoadUserRuleThresholdsResult,
   type UserRulesClient,
 } from "@/lib/scoring/user-rules";
+import {
+  loadAlertPreferences,
+  type AlertPreferences,
+  type AlertPreferencesClient,
+  type LoadAlertPreferencesResult,
+} from "./alert-preferences";
 import type { GrahamScoringThresholds } from "@/lib/scoring/thresholds";
 import {
   resetRuleThresholdsAction,
+  updateAlertPreferencesAction,
   updateAllocationThresholdsAction,
   updateValuationThresholdsAction,
 } from "./actions";
@@ -21,7 +28,8 @@ type AuthenticatedUser = {
   id: string;
 };
 
-export type SettingsSupabaseClient = UserRulesClient & {
+export type SettingsSupabaseClient = UserRulesClient &
+  AlertPreferencesClient & {
   auth: {
     getUser(): PromiseLike<{
       data: {
@@ -34,12 +42,17 @@ export type SettingsSupabaseClient = UserRulesClient & {
 export type RulesSettingsPageDependencies = {
   createSupabaseClient: () => Promise<SettingsSupabaseClient>;
   feedbackMessages?: FeedbackSnackbarMessage[];
+  loadPreferences?: (
+    supabase: AlertPreferencesClient,
+    userId: string,
+  ) => Promise<LoadAlertPreferencesResult>;
   loadRuleThresholds?: (
     supabase: UserRulesClient,
     userId: string,
   ) => Promise<LoadUserRuleThresholdsResult>;
   redirectToLogin: (url: string) => never;
   resetRuleThresholds?: () => Promise<void>;
+  updateAlertPreferences?: (formData: FormData) => Promise<void>;
   updateAllocationThresholds?: (formData: FormData) => Promise<void>;
   updateValuationThresholds?: (formData: FormData) => Promise<void>;
 };
@@ -96,6 +109,42 @@ const RULE_DEFINITIONS: RuleDefinition[] = [
     format: "percent",
     getValue: (thresholds) => thresholds.maxSectorAllocationPercent,
     label: "Maximum sector allocation",
+  },
+];
+
+const ALERT_PREFERENCE_DEFINITIONS: Array<{
+  description: string;
+  key: keyof AlertPreferences;
+  label: string;
+  name: string;
+}> = [
+  {
+    description:
+      "Flags owned holdings above allocation limits or missing enough data to calculate concentration.",
+    key: "allocation",
+    label: "Allocation alerts",
+    name: "allocation",
+  },
+  {
+    description:
+      "Flags target-price comparisons for watchlist items with cached prices.",
+    key: "targetPrice",
+    label: "Target price alerts",
+    name: "target_price",
+  },
+  {
+    description:
+      "Flags deterministic stock-score and portfolio-fit label or rule changes.",
+    key: "scoreChange",
+    label: "Score change alerts",
+    name: "score_change",
+  },
+  {
+    description:
+      "Flags watched stocks with positive deterministic labels and compatible target-price context.",
+    key: "watchlistOpportunity",
+    label: "Watchlist opportunity alerts",
+    name: "watchlist_opportunity",
   },
 ];
 
@@ -274,6 +323,66 @@ function AllocationThresholdForm({
   );
 }
 
+function AlertPreferencesForm({
+  action,
+  preferences,
+}: {
+  action: (formData: FormData) => Promise<void>;
+  preferences: AlertPreferences;
+}) {
+  return (
+    <form
+      action={action}
+      className="grid gap-5 border-t border-neutral-800 pt-8"
+    >
+      <div>
+        <h2 className="text-lg font-semibold text-white">
+          Alert preferences
+        </h2>
+        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
+          Choose which deterministic review queue categories appear on the
+          dashboard. Disabled categories stay hidden until you enable them
+          again.
+        </p>
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-2">
+        {ALERT_PREFERENCE_DEFINITIONS.map((definition) => (
+          <label
+            className="flex gap-3 rounded-lg border border-neutral-800 bg-neutral-900/70 p-4 text-sm text-neutral-200"
+            key={definition.name}
+          >
+            <input
+              className="mt-1 h-4 w-4 rounded border-neutral-700 bg-neutral-950 text-emerald-400"
+              defaultChecked={preferences[definition.key]}
+              name={definition.name}
+              type="checkbox"
+              value="on"
+            />
+            <span>
+              <span className="block font-medium text-white">
+                {definition.label}
+              </span>
+              <span className="mt-1 block leading-6 text-neutral-400">
+                {definition.description}
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
+
+      <div>
+        <button
+          className="inline-flex h-10 items-center justify-center rounded-md bg-emerald-400 px-4 text-sm font-semibold text-neutral-950 transition hover:bg-emerald-300"
+          type="submit"
+        >
+          Save alert preferences
+        </button>
+      </div>
+    </form>
+  );
+}
+
 function ResetThresholdsForm({ action }: { action: () => Promise<void> }) {
   return (
     <form
@@ -360,9 +469,11 @@ function SettingsNavigation() {
 export async function RulesSettingsPage({
   createSupabaseClient,
   feedbackMessages = [],
+  loadPreferences = loadAlertPreferences,
   loadRuleThresholds = loadUserRuleThresholds,
   redirectToLogin,
   resetRuleThresholds = resetRuleThresholdsAction,
+  updateAlertPreferences = updateAlertPreferencesAction,
   updateAllocationThresholds = updateAllocationThresholdsAction,
   updateValuationThresholds = updateValuationThresholdsAction,
 }: RulesSettingsPageDependencies) {
@@ -378,6 +489,12 @@ export async function RulesSettingsPage({
   }
 
   const rulesResult = await loadRuleThresholds(supabase, user.id);
+  const preferencesResult = await loadPreferences(supabase, user.id);
+  const settingsErrorMessage = !rulesResult.ok
+    ? rulesResult.error.message
+    : !preferencesResult.ok
+      ? preferencesResult.error.message
+      : null;
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -415,7 +532,7 @@ export async function RulesSettingsPage({
             ) : null}
           </section>
 
-          {rulesResult.ok ? (
+          {rulesResult.ok && preferencesResult.ok ? (
             <>
               <ValuationThresholdForm
                 action={updateValuationThresholds}
@@ -425,6 +542,11 @@ export async function RulesSettingsPage({
               <AllocationThresholdForm
                 action={updateAllocationThresholds}
                 thresholds={rulesResult.thresholds}
+              />
+
+              <AlertPreferencesForm
+                action={updateAlertPreferences}
+                preferences={preferencesResult.preferences}
               />
 
               <ResetThresholdsForm action={resetRuleThresholds} />
@@ -445,11 +567,11 @@ export async function RulesSettingsPage({
                 <RulesTable thresholds={rulesResult.thresholds} />
               </section>
             </>
-          ) : (
+          ) : settingsErrorMessage ? (
             <p className="rounded-md border border-red-900 bg-red-950/60 px-4 py-3 text-sm text-red-200">
-              {rulesResult.error.message}
+              {settingsErrorMessage}
             </p>
-          )}
+          ) : null}
         </div>
       </section>
     </main>

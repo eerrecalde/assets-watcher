@@ -9,6 +9,47 @@ export type Json =
 export type Database = {
   public: {
     Tables: {
+      alert_preferences: {
+        Row: {
+          allocation_enabled: boolean;
+          created_at: string;
+          id: string;
+          score_change_enabled: boolean;
+          target_price_enabled: boolean;
+          updated_at: string;
+          user_id: string;
+          watchlist_opportunity_enabled: boolean;
+        };
+        Insert: {
+          allocation_enabled?: boolean;
+          created_at?: string;
+          id?: string;
+          score_change_enabled?: boolean;
+          target_price_enabled?: boolean;
+          updated_at?: string;
+          user_id: string;
+          watchlist_opportunity_enabled?: boolean;
+        };
+        Update: {
+          allocation_enabled?: boolean;
+          created_at?: string;
+          id?: string;
+          score_change_enabled?: boolean;
+          target_price_enabled?: boolean;
+          updated_at?: string;
+          user_id?: string;
+          watchlist_opportunity_enabled?: boolean;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "alert_preferences_user_id_fkey";
+            columns: ["user_id"];
+            isOneToOne: false;
+            referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+        ];
+      };
       ai_takes: {
         Row: {
           created_at: string;

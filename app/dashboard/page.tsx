@@ -26,6 +26,12 @@ import {
   loadUserRuleThresholds,
   type UserRulesClient,
 } from "@/lib/scoring/user-rules";
+import {
+  DEFAULT_ALERT_PREFERENCES,
+  loadAlertPreferences,
+  type AlertPreferences,
+  type AlertPreferencesClient,
+} from "@/lib/settings/alert-preferences";
 import { classifyStockDetailPriceFreshness } from "@/lib/stocks/detail";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/types/supabase";
@@ -701,6 +707,27 @@ function buildReviewQueueItems({
     .slice(0, 8);
 }
 
+function filterReviewQueueItemsByPreferences(
+  items: ReviewQueueItem[],
+  preferences: AlertPreferences,
+) {
+  return items.filter((item) => {
+    if (item.kind === "allocation") {
+      return preferences.allocation;
+    }
+
+    if (item.kind === "score_change") {
+      return preferences.scoreChange;
+    }
+
+    if (item.kind === "target_price") {
+      return preferences.targetPrice;
+    }
+
+    return preferences.watchlistOpportunity;
+  });
+}
+
 function LabelState({
   label,
   missingText,
@@ -770,6 +797,10 @@ export default async function DashboardPage({
     : { data: [] as WatchlistItemRow[], error: null };
   const userRulesResult = await loadUserRuleThresholds(
     supabase as unknown as UserRulesClient,
+    user.id,
+  );
+  const alertPreferencesResult = await loadAlertPreferences(
+    supabase as unknown as AlertPreferencesClient,
     user.id,
   );
 
@@ -914,6 +945,7 @@ export default async function DashboardPage({
     Boolean(stockScoresResult.error) ||
     Boolean(portfolioScoresResult.error) ||
     !userRulesResult.ok ||
+    !alertPreferencesResult.ok ||
     Boolean(cashResult.error);
   const hasWatchlistLoadError =
     Boolean(watchlistResult.error) ||
@@ -928,19 +960,25 @@ export default async function DashboardPage({
   );
   const latestAITakeSnapshotDate = getAITakeSnapshotDate(latestAITakeSnapshot);
   const latestAITakeFacts = getAITakeFacts(latestAITakeSnapshot);
-  const reviewQueueItems = buildReviewQueueItems({
-    displayCurrency,
-    enrichedHoldings,
-    cashAmountInput: cashAmountValue,
-    latestPricesBySymbol,
-    maxSingleStockAllocationPercent:
-      ruleThresholds.maxSingleStockAllocationPercent,
-    portfolioScoreHistoryBySymbol,
-    ruleSource: userRulesResult.ok ? userRulesResult.source : "defaults",
-    scoreHistoryBySymbol,
-    stocksBySymbol,
-    watchlistItems,
-  });
+  const alertPreferences = alertPreferencesResult.ok
+    ? alertPreferencesResult.preferences
+    : DEFAULT_ALERT_PREFERENCES;
+  const reviewQueueItems = filterReviewQueueItemsByPreferences(
+    buildReviewQueueItems({
+      displayCurrency,
+      enrichedHoldings,
+      cashAmountInput: cashAmountValue,
+      latestPricesBySymbol,
+      maxSingleStockAllocationPercent:
+        ruleThresholds.maxSingleStockAllocationPercent,
+      portfolioScoreHistoryBySymbol,
+      ruleSource: userRulesResult.ok ? userRulesResult.source : "defaults",
+      scoreHistoryBySymbol,
+      stocksBySymbol,
+      watchlistItems,
+    }),
+    alertPreferences,
+  );
 
   return (
     <main className="min-h-screen bg-neutral-950 text-neutral-100">
@@ -1097,8 +1135,14 @@ export default async function DashboardPage({
               </h2>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-400">
                 Deterministic attention items from your holdings, watchlist,
-                cached prices, and saved scoring snapshots.
+                cached prices, saved scoring snapshots, and alert preferences.
               </p>
+              <Link
+                className="mt-3 inline-flex text-sm font-medium text-emerald-200 underline-offset-4 transition hover:text-emerald-100 hover:underline"
+                href="/settings/rules"
+              >
+                Configure alert preferences
+              </Link>
             </div>
 
             {reviewQueueItems.length ? (

@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import {
+  parseAlertPreferencesFormData,
+  saveAlertPreferences,
+  type SaveAlertPreferencesClient,
+} from "@/lib/settings/alert-preferences";
+import {
   loadUserRuleThresholds,
   resetUserRuleThresholds,
   saveAllocationRuleThresholds,
@@ -165,6 +170,33 @@ export async function resetRuleThresholdsAction() {
   redirectWithFeedback({
     success: "Rule thresholds reset to product-plan defaults.",
     warning,
+  });
+}
+
+export async function updateAlertPreferencesAction(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    redirect(`/login?next=${encodeURIComponent(RULES_SETTINGS_PATH)}`);
+  }
+
+  const result = await saveAlertPreferences(
+    supabase as unknown as SaveAlertPreferencesClient,
+    user.id,
+    parseAlertPreferencesFormData(formData),
+  );
+
+  if (!result.ok) {
+    redirectWithFeedback({ error: result.error.message });
+  }
+
+  revalidatePath(RULES_SETTINGS_PATH);
+  revalidatePath("/dashboard");
+  redirectWithFeedback({
+    success: "Alert preferences saved.",
   });
 }
 
