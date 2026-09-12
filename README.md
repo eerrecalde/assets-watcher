@@ -47,6 +47,10 @@ This is an in-progress prototype. Its authenticated portfolio, holdings, watchli
 
 Local demo data makes the core portfolio state easy to inspect without relying on a live market-data provider.
 
+### Dashboard
+
+![Dashboard populated with local demo data](./docs/screenshots/01-dashboard.webp)
+
 ### Holdings
 
 ![Holdings populated with local demo data](./docs/screenshots/02-holdings.webp)
