@@ -43,6 +43,14 @@ I wanted to explore the engineering boundaries of a personal-finance product: us
 
 This is an in-progress prototype. Its authenticated portfolio, holdings, watchlist, stock-detail, scoring, user-rule, cached-market-data, and on-demand AI pathways are implemented in the repository. The wider product roadmap remains in [docs/product-plan.md](./docs/product-plan.md).
 
+## Screenshots
+
+Local demo data makes the core portfolio state easy to inspect without relying on a live market-data provider.
+
+### Holdings
+
+![Holdings populated with local demo data](./docs/screenshots/02-holdings.webp)
+
 ## Running the project
 
 See [HOW_TO_USE.md](./HOW_TO_USE.md) for prerequisites, environment variables, local setup, database work, and verification commands.
